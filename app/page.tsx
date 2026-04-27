@@ -1,11 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Inicializar cliente de Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Forzar renderizado dinámico para que actualice al instante si agregas productos
 export const revalidate = 0;
 
 export default async function Catalogo() {
@@ -22,7 +20,6 @@ export default async function Catalogo() {
           <p className="text-neutral-500 mt-2">Productos disponibles</p>
         </header>
 
-        {/* Grilla 100% responsive: 1 columna en móviles, 2 en tablets, 3 en escritorio */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
           {products?.map((product) => (
             <div
@@ -44,7 +41,13 @@ export default async function Catalogo() {
               </div>
               <div className="p-4">
                 <h2 className="text-lg font-semibold text-neutral-800">{product.name}</h2>
-                <p className="text-xl font-bold text-neutral-900 mt-2">
+                {/* Acá agregamos la descripción */}
+                {product.description && (
+                  <p className="text-sm text-neutral-500 mt-1 line-clamp-2">
+                    {product.description}
+                  </p>
+                )}
+                <p className="text-xl font-bold text-neutral-900 mt-3">
                   ${product.price.toLocaleString('es-AR')}
                 </p>
               </div>
