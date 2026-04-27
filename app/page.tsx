@@ -2,13 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Search, ShoppingCart, Trash2, X, CheckCircle2, SlidersHorizontal } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, X, CheckCircle2, ChevronDown } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Tus números configurados y listos para usar
 const WHATSAPP_NUMBERS = [
   { id: '1', label: 'Ventas - Línea 1', phone: '5492235922077' },
   { id: '2', label: 'Ventas - Línea 2', phone: '5492932500926' }
@@ -16,30 +15,25 @@ const WHATSAPP_NUMBERS = [
 
 export default function CatalogoEmpretiendaStyle() {
   const [products, setProducts] = useState<any[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [storeSettings, setStoreSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Filtros Avanzados
+  // Filtros y Orden
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<'newest' | 'price_asc' | 'price_desc'>('newest');
 
+  // Carrito y Modales
   const [cart, setCart] = useState<{ [key: string]: any }>({});
   const [isCartOpen, setIsCartOpen] = useState(false);
-
-  // Para manejar el modal de detalles
   const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
 
-  // Estados para el flujo de Checkout y UI (agregamos 'processing')
+  // Checkout
   const [checkoutStep, setCheckoutStep] = useState<'cart' | 'form' | 'processing' | 'success'>('cart');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Datos del cliente
   const [customerData, setCustomerData] = useState({
-    name: '',
-    phone: '',
-    notes: '',
-    selectedSeller: WHATSAPP_NUMBERS[0].phone // Por defecto el primero
+    name: '', phone: '', notes: '', selectedSeller: WHATSAPP_NUMBERS[0].phone
   });
 
   useEffect(() => {
@@ -55,20 +49,27 @@ export default function CatalogoEmpretiendaStyle() {
   const fetchInitialData = async () => {
     try {
       setLoading(true);
+
+      // 1. Traer configuración de la tienda (Logo, Nombre, Color)
+      const { data: settings } = await supabase.from('store_settings').select('*').eq('id', 1).single();
+      if (settings) setStoreSettings(settings);
+
+      // 2. Traer productos activos
       const { data: prods } = await supabase.from('products').select('*').eq('is_active', true);
       if (prods) setProducts(prods);
 
-      const { data: cats } = await supabase.from('products').select('category').not('category', 'is', null).not('category', 'eq', '');
-      if (cats) {
-        const uniqueCats = [...new Set(cats.map(item => item.category))] as string[];
-        setCategories(uniqueCats);
-      }
+      // 3. Traer categorías
+      const { data: cats } = await supabase.from('categories').select('*').order('name');
+      if (cats) setCategories(cats);
+
     } catch (error) {
-      console.error(error);
+      console.error("Error cargando datos:", error);
     } finally {
       setLoading(false);
     }
   };
+
+  const themeColor = storeSettings?.theme_color || '#171717'; // Neutral 900 por defecto
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -78,29 +79,19 @@ export default function CatalogoEmpretiendaStyle() {
   const addToCart = (product: any) => {
     setCart(prev => ({
       ...prev,
-      [product.id]: prev[product.id]
-        ? { ...prev[product.id], quantity: prev[product.id].quantity + 1 }
-        : { ...product, quantity: 1 }
+      [product.id]: prev[product.id] ? { ...prev[product.id], quantity: prev[product.id].quantity + 1 } : { ...product, quantity: 1 }
     }));
     showToast(`¡${product.name} agregado!`);
   };
 
   const removeFromCart = (id: number) => {
-    setCart(prev => {
-      const newCart = { ...prev };
-      delete newCart[id];
-      return newCart;
-    });
+    setCart(prev => { const newCart = { ...prev }; delete newCart[id]; return newCart; });
   };
 
   const updateQuantity = (id: number, change: number) => {
     setCart(prev => {
       const newQuantity = (prev[id].quantity || 1) + change;
-      if (newQuantity <= 0) {
-        const newCart = { ...prev };
-        delete newCart[id];
-        return newCart;
-      }
+      if (newQuantity <= 0) { const newCart = { ...prev }; delete newCart[id]; return newCart; }
       return { ...prev, [id]: { ...prev[id], quantity: newQuantity } };
     });
   };
@@ -108,29 +99,19 @@ export default function CatalogoEmpretiendaStyle() {
   const cartItemsCount = Object.values(cart).reduce((sum, item) => sum + item.quantity, 0);
   const cartTotal = Object.values(cart).reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-  // ENVÍO SILENCIOSO A NUESTRA API
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setCheckoutStep('processing'); // Mostramos pantalla de carga
-
+    setCheckoutStep('processing');
     try {
       const response = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerData,
-          cart: Object.values(cart),
-          cartTotal
-        })
+        body: JSON.stringify({ customerData, cart: Object.values(cart), cartTotal })
       });
-
       if (!response.ok) throw new Error('Error de red');
-
-      // Limpiar carrito y mostrar éxito
       setCart({});
       setCheckoutStep('success');
     } catch (error) {
-      console.error(error);
       alert("Hubo un error al enviar el pedido. Revisá tu conexión e intentá de nuevo.");
       setCheckoutStep('form');
     }
@@ -139,139 +120,169 @@ export default function CatalogoEmpretiendaStyle() {
   // Motor de Búsqueda y Ordenamiento
   const filteredProducts = products.filter(product => {
     const matchesSearch = searchQuery === '' || product.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = activeCategory === null || product.category === activeCategory;
+    const matchesCategory = activeCategory === null || product.category_id === activeCategory;
     return matchesSearch && matchesCategory;
   }).sort((a, b) => {
     if (sortBy === 'price_asc') return a.price - b.price;
     if (sortBy === 'price_desc') return b.price - a.price;
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime(); // newest por defecto
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
   return (
-    <main className="min-h-screen bg-neutral-50 pb-16 relative">
+    <main className="min-h-screen bg-neutral-50 pb-20 font-sans text-neutral-900">
 
-      {/* Notificación Toast (Animada) */}
-      <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 text-white px-6 py-3 rounded-full shadow-lg font-medium text-sm transition-all duration-300 ${toastMessage ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'}`}>
+      {/* TOAST NOTIFICATION */}
+      <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 text-white px-6 py-3 rounded-full shadow-xl font-bold text-sm transition-all duration-300 ${toastMessage ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'}`} style={{ backgroundColor: themeColor }}>
         {toastMessage}
       </div>
 
-      <header className="bg-white border-b border-neutral-200 sticky top-0 z-40 shadow-sm transition-all duration-300">
-        <div className="max-w-7xl mx-auto px-6 h-16 sm:h-20 flex items-center justify-between">
-          <div className="relative flex-grow max-w-xs transition-all duration-300 focus-within:max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-5 w-5" />
+      {/* HEADER PRINCIPAL */}
+      <header className="bg-white border-b border-neutral-100 sticky top-0 z-40 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-20 grid grid-cols-3 items-center">
+
+          {/* Izquierda: Buscador */}
+          <div className="relative w-full max-w-xs group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-5 w-5 transition-colors group-focus-within:text-neutral-900" />
             <input
               type="text"
               placeholder="Buscar..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-3 py-2 sm:py-2.5 border border-neutral-200 rounded-lg text-neutral-900 bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white text-sm transition-colors"
+              className="w-full pl-10 pr-4 py-2.5 bg-neutral-100 border-transparent rounded-xl text-sm outline-none transition-all focus:bg-white focus:border-neutral-300 focus:ring-4 focus:ring-neutral-100"
             />
           </div>
 
-          <h1 className="text-xl sm:text-2xl font-extrabold text-neutral-900 uppercase tracking-tighter mx-4 text-center cursor-pointer hover:text-orange-500 transition-colors">
-            Mi Tienda
-          </h1>
-
-          <button
-            onClick={() => { setIsCartOpen(true); setCheckoutStep('cart'); }}
-            className="relative flex items-center gap-2.5 px-4 py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-all hover:scale-105 active:scale-95"
-          >
-            <ShoppingCart className="h-5 w-5" />
-            <span className="font-semibold text-sm hidden sm:inline">Carrito</span>
-            {cartItemsCount > 0 && (
-              <span className="absolute -top-2 -right-2 bg-orange-500 text-white text-[11px] font-bold h-5 w-5 flex items-center justify-center rounded-full animate-bounce">
-                {cartItemsCount}
-              </span>
+          {/* Centro: Logo / Nombre */}
+          <div className="flex justify-center items-center cursor-pointer" onClick={() => { setActiveCategory(null); setSearchQuery(''); }}>
+            {storeSettings?.logo_url ? (
+              <img src={storeSettings.logo_url} alt={storeSettings.store_name} className="h-10 sm:h-12 w-auto object-contain drop-shadow-sm transition-transform hover:scale-105" />
+            ) : (
+              <h1 className="text-2xl font-black tracking-tight uppercase">{storeSettings?.store_name || 'Mi Tienda'}</h1>
             )}
-          </button>
-        </div>
-      </header>
+          </div>
 
-      {/* NAV CON CATEGORÍAS Y FILTROS */}
-      <nav className="bg-white border-b border-neutral-100 sticky top-16 sm:top-20 z-30 shadow-xs">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          {categories.length > 0 && (
-            <div className="flex items-center gap-2 overflow-x-auto scroller-hidden">
-              <button
-                onClick={() => setActiveCategory(null)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 ${activeCategory === null ? 'bg-orange-500 text-white shadow-md' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200 hover:shadow-sm'}`}
-              >
-                Todos
-              </button>
-              {categories.map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
-                  className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 ${activeCategory === cat ? 'bg-orange-500 text-white shadow-md' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200 hover:shadow-sm'}`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
-            <SlidersHorizontal className="h-4 w-4 text-neutral-400" />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="bg-transparent text-sm font-medium text-neutral-700 outline-none cursor-pointer hover:text-neutral-900 transition-colors"
+          {/* Derecha: Carrito */}
+          <div className="flex justify-end">
+            <button
+              onClick={() => { setIsCartOpen(true); setCheckoutStep('cart'); }}
+              className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all hover:bg-neutral-100 active:scale-95 group"
             >
-              <option value="newest">Más Recientes</option>
-              <option value="price_asc">Menor Precio</option>
-              <option value="price_desc">Mayor Precio</option>
-            </select>
+              <ShoppingCart className="h-6 w-6 text-neutral-700 group-hover:text-neutral-900" />
+              <span className="font-bold text-sm hidden sm:block text-neutral-700 group-hover:text-neutral-900">Mi Carrito</span>
+              {cartItemsCount > 0 && (
+                <span className="absolute -top-1 -right-1 text-white text-[10px] font-black h-5 w-5 flex items-center justify-center rounded-full shadow-md animate-bounce" style={{ backgroundColor: themeColor }}>
+                  {cartItemsCount}
+                </span>
+              )}
+            </button>
           </div>
         </div>
-      </nav>
 
-      <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-6 mt-10">
+        {/* NAVEGACIÓN DE CATEGORÍAS */}
+        {categories.length > 0 && (
+          <nav className="border-t border-neutral-100 bg-white">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6">
+              <ul className="flex items-center gap-6 overflow-x-auto scroller-hidden h-14">
+                <li>
+                  <button
+                    onClick={() => setActiveCategory(null)}
+                    className={`whitespace-nowrap text-sm font-bold transition-colors relative h-14 flex items-center ${activeCategory === null ? 'text-neutral-900' : 'text-neutral-500 hover:text-neutral-900'}`}
+                  >
+                    Todos los productos
+                    {activeCategory === null && <span className="absolute bottom-0 left-0 w-full h-1 rounded-t-md" style={{ backgroundColor: themeColor }}></span>}
+                  </button>
+                </li>
+                {categories.map(cat => (
+                  <li key={cat.id}>
+                    <button
+                      onClick={() => setActiveCategory(cat.id)}
+                      className={`whitespace-nowrap text-sm font-bold transition-colors relative h-14 flex items-center ${activeCategory === cat.id ? 'text-neutral-900' : 'text-neutral-500 hover:text-neutral-900'}`}
+                    >
+                      {cat.name}
+                      {activeCategory === cat.id && <span className="absolute bottom-0 left-0 w-full h-1 rounded-t-md" style={{ backgroundColor: themeColor }}></span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </nav>
+        )}
+      </header>
+
+      {/* BARRA DE CONTROL (Filtros y Ordenamiento) */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 pb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-black tracking-tight text-neutral-900">
+            {activeCategory ? categories.find(c => c.id === activeCategory)?.name : 'Novedades'}
+          </h2>
+          <p className="text-neutral-500 text-sm mt-1 font-medium">{filteredProducts.length} productos disponibles</p>
+        </div>
+
+        <div className="relative">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="appearance-none bg-white border border-neutral-200 text-neutral-700 font-bold text-sm py-2.5 pl-4 pr-10 rounded-xl outline-none cursor-pointer hover:border-neutral-300 transition-colors focus:ring-4 focus:ring-neutral-100"
+          >
+            <option value="newest">Más Recientes</option>
+            <option value="price_asc">Menor Precio</option>
+            <option value="price_desc">Mayor Precio</option>
+          </select>
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400 pointer-events-none" />
+        </div>
+      </div>
+
+      {/* GRILLA DE PRODUCTOS */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-6">
         {loading ? (
-          [...Array(10)].map((_, i) => <div key={i} className="aspect-[3/4] bg-neutral-200 rounded-xl animate-pulse"></div>)
+          [...Array(10)].map((_, i) => <div key={i} className="aspect-[3/4] bg-neutral-100 rounded-2xl animate-pulse"></div>)
         ) : filteredProducts.map((product) => (
           <div
             key={product.id}
-            className={`bg-white rounded-xl shadow-sm border border-neutral-100 overflow-hidden flex flex-col transition-all duration-300 hover:shadow-xl hover:-translate-y-1.5 group ${!product.in_stock ? 'opacity-75 grayscale-[0.5]' : 'cursor-pointer'}`}
+            className={`bg-white rounded-2xl shadow-sm border border-neutral-100 overflow-hidden flex flex-col transition-all duration-300 hover:shadow-xl hover:-translate-y-1 group ${!product.in_stock ? 'opacity-75' : 'cursor-pointer'}`}
             onClick={() => product.in_stock && setSelectedProduct(product)}
           >
-            <div className="aspect-square bg-neutral-50 w-full relative overflow-hidden flex items-center justify-center p-4">
+            <div className="aspect-square bg-white w-full relative overflow-hidden flex items-center justify-center p-4">
               {!product.in_stock && (
-                <div className="absolute inset-0 bg-white/40 z-20 flex items-center justify-center backdrop-blur-[1px]">
-                  <span className="bg-neutral-900 text-white font-black text-xs tracking-widest uppercase px-4 py-1.5 rounded-full rotate-[-12deg] shadow-lg">Agotado</span>
+                <div className="absolute inset-0 bg-white/50 z-20 flex items-center justify-center backdrop-blur-[2px]">
+                  <span className="bg-neutral-900 text-white font-black text-xs tracking-widest uppercase px-4 py-1.5 rounded-full shadow-lg">Agotado</span>
                 </div>
               )}
+              {product.compare_at_price && product.compare_at_price > product.price && (
+                <span className="absolute top-3 left-3 z-10 text-white text-[10px] font-black uppercase px-2 py-1 rounded-md shadow-sm" style={{ backgroundColor: themeColor }}>
+                  {Math.round(((product.compare_at_price - product.price) / product.compare_at_price) * 100)}% OFF
+                </span>
+              )}
               {product.image_url ? (
-                <img src={product.image_url} alt={product.name} className="w-full h-full object-contain mix-blend-multiply transition-transform duration-500 group-hover:scale-110" />
+                <img src={product.image_url} alt={product.name} className="w-full h-full object-contain mix-blend-multiply transition-transform duration-500 group-hover:scale-105" />
               ) : (
-                <div className="text-neutral-300 text-xs">Sin imagen</div>
+                <div className="text-neutral-300 text-xs font-bold">Sin imagen</div>
               )}
             </div>
 
-            <div className="p-4 text-center flex flex-col flex-grow bg-white z-10">
-              <h3 className="text-sm font-semibold text-neutral-800 line-clamp-2 min-h-[40px] group-hover:text-orange-500 transition-colors">
+            <div className="p-4 text-center flex flex-col flex-grow bg-neutral-50/50 z-10 border-t border-neutral-50">
+              <h3 className="text-sm font-bold text-neutral-800 line-clamp-2 min-h-[40px] leading-tight transition-colors" style={{ '--tw-text-opacity': '1' } as React.CSSProperties}>
                 {product.name}
               </h3>
-              <div className="mt-1 mb-4">
-                <p className="text-lg font-black text-neutral-950 flex items-center gap-2 justify-center">
+
+              <div className="mt-2 mb-4 flex flex-col items-center justify-center">
+                <p className="text-lg font-black text-neutral-900">
                   ${product.price.toLocaleString('es-AR')}
-                  {product.compare_at_price && product.compare_at_price > product.price && (
-                    <span className="text-xs text-neutral-400 line-through font-medium">
-                      ${product.compare_at_price.toLocaleString('es-AR')}
-                    </span>
-                  )}
                 </p>
-                {product.compare_at_price && product.compare_at_price > product.price && (
-                  <span className="bg-green-100 text-green-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-full inline-block mt-1">
-                    {Math.round(((product.compare_at_price - product.price) / product.compare_at_price) * 100)}% OFF
-                  </span>
-                )}
+                {product.compare_at_price && product.compare_at_price > product.price ? (
+                  <p className="text-xs text-neutral-400 line-through font-bold mt-0.5">
+                    ${product.compare_at_price.toLocaleString('es-AR')}
+                  </p>
+                ) : <div className="h-4"></div>}
               </div>
+
               <button
                 disabled={!product.in_stock}
                 onClick={(e) => { e.stopPropagation(); addToCart(product); }}
-                className="mt-auto w-full text-center bg-neutral-900 text-white text-xs font-bold py-3 rounded-lg hover:bg-orange-500 transition-colors active:scale-95 disabled:bg-neutral-200 disabled:text-neutral-400 disabled:hover:scale-100 disabled:cursor-not-allowed"
+                className={`mt-auto w-full text-center text-white text-xs font-black py-3 rounded-xl transition-all active:scale-95 ${!product.in_stock ? 'bg-neutral-200 text-neutral-400 hover:scale-100 cursor-not-allowed' : 'hover:opacity-90 shadow-md'}`}
+                style={product.in_stock ? { backgroundColor: themeColor } : {}}
               >
-                {product.in_stock ? 'Sumar al carrito' : 'Sin Stock'}
+                {product.in_stock ? 'Agregar al carrito' : 'Sin Stock'}
               </button>
             </div>
           </div>
@@ -281,36 +292,40 @@ export default function CatalogoEmpretiendaStyle() {
       {/* MODAL DETALLE DE PRODUCTO */}
       {selectedProduct && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 opacity-100 transition-opacity">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedProduct(null)}></div>
+          <div className="absolute inset-0 bg-neutral-900/40 backdrop-blur-sm" onClick={() => setSelectedProduct(null)}></div>
 
-          <div className="relative bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row transform transition-transform scale-100 max-h-[90vh]">
-            <button onClick={() => setSelectedProduct(null)} className="absolute top-4 right-4 z-10 bg-white/80 backdrop-blur p-1.5 rounded-full text-neutral-500 hover:text-neutral-900 transition-colors">
-              <X className="h-6 w-6" />
+          <div className="relative bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row transform transition-transform scale-100 max-h-[90vh]">
+            <button onClick={() => setSelectedProduct(null)} className="absolute top-4 right-4 z-10 bg-white/80 backdrop-blur p-2 rounded-full text-neutral-500 hover:text-neutral-900 transition-colors shadow-sm">
+              <X className="h-5 w-5" />
             </button>
 
-            {/* Columna Imagen */}
-            <div className="w-full md:w-1/2 bg-neutral-50 p-6 sm:p-10 flex items-center justify-center min-h-[300px]">
+            <div className="w-full md:w-1/2 bg-white p-6 sm:p-10 flex items-center justify-center min-h-[300px]">
               {selectedProduct.image_url ? (
                 <img src={selectedProduct.image_url} alt={selectedProduct.name} className="w-full h-full object-contain mix-blend-multiply" />
               ) : (
-                <div className="text-neutral-400">Sin imagen</div>
+                <div className="text-neutral-400 font-bold">Sin imagen</div>
               )}
             </div>
 
-            {/* Columna Info */}
-            <div className="w-full md:w-1/2 p-6 sm:p-10 flex flex-col overflow-y-auto scroller-hidden">
-              {selectedProduct.category && <span className="text-orange-500 text-xs font-black uppercase tracking-wider mb-2">{selectedProduct.category}</span>}
-              <h2 className="text-2xl sm:text-3xl font-black text-neutral-900 leading-tight mb-4">{selectedProduct.name}</h2>
-              <p className="text-3xl font-black text-neutral-900 mb-6">${selectedProduct.price.toLocaleString('es-AR')}</p>
+            <div className="w-full md:w-1/2 p-6 sm:p-10 flex flex-col overflow-y-auto scroller-hidden bg-neutral-50/50">
+              <h2 className="text-2xl sm:text-3xl font-black text-neutral-900 leading-tight mb-2">{selectedProduct.name}</h2>
 
-              <div className="prose prose-sm text-neutral-600 mb-8 whitespace-pre-wrap flex-grow">
+              <div className="flex items-end gap-3 mb-6">
+                <p className="text-4xl font-black text-neutral-900">${selectedProduct.price.toLocaleString('es-AR')}</p>
+                {selectedProduct.compare_at_price && selectedProduct.compare_at_price > selectedProduct.price && (
+                  <p className="text-lg text-neutral-400 line-through font-bold mb-1">${selectedProduct.compare_at_price.toLocaleString('es-AR')}</p>
+                )}
+              </div>
+
+              <div className="prose prose-sm text-neutral-600 mb-8 whitespace-pre-wrap flex-grow font-medium leading-relaxed">
                 {selectedProduct.description ? selectedProduct.description : 'Este producto no tiene descripción adicional.'}
               </div>
 
-              <div className="mt-auto pt-6 border-t border-neutral-100">
+              <div className="mt-auto pt-6 border-t border-neutral-200">
                 <button
                   onClick={() => { addToCart(selectedProduct); setSelectedProduct(null); setIsCartOpen(true); }}
-                  className="w-full bg-orange-500 text-white font-black py-4 rounded-xl hover:bg-orange-600 transition-transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-orange-500/30 flex items-center justify-center gap-2"
+                  className="w-full text-white font-black py-4 rounded-xl transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2 hover:opacity-90"
+                  style={{ backgroundColor: themeColor }}
                 >
                   <ShoppingCart className="h-5 w-5" />
                   Agregar al Carrito
@@ -321,38 +336,39 @@ export default function CatalogoEmpretiendaStyle() {
         </div>
       )}
 
-      {/* PANEL LATERAL DEL CARRITO / CHECKOUT */}
+      {/* CARRITO / CHECKOUT */}
       <div className={`fixed inset-0 z-50 transition-opacity duration-300 ${isCartOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsCartOpen(false)}></div>
+        <div className="absolute inset-0 bg-neutral-900/40 backdrop-blur-sm" onClick={() => setIsCartOpen(false)}></div>
 
-        <div className={`absolute right-0 top-0 h-full w-full max-w-sm sm:max-w-md bg-white shadow-2xl flex flex-col transform transition-transform duration-300 ease-out ${isCartOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className={`absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col transform transition-transform duration-300 ease-out ${isCartOpen ? 'translate-x-0' : 'translate-x-full'}`}>
 
-          <div className="p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50">
-            <h3 className="text-lg font-black text-neutral-900 uppercase tracking-tight">
+          <div className="p-6 border-b border-neutral-100 flex items-center justify-between bg-white">
+            <h3 className="text-xl font-black text-neutral-900">
               {checkoutStep === 'cart' ? 'Tu Pedido' : checkoutStep === 'form' ? 'Datos de Envío' : checkoutStep === 'processing' ? 'Procesando...' : '¡Listo!'}
             </h3>
-            <button onClick={() => setIsCartOpen(false)} className="text-neutral-400 hover:text-neutral-900 transition-colors">
-              <X className="h-6 w-6" />
+            <button onClick={() => setIsCartOpen(false)} className="text-neutral-400 hover:text-neutral-900 transition-colors p-1 bg-neutral-100 rounded-full">
+              <X className="h-5 w-5" />
             </button>
           </div>
 
-          <div className="flex-grow overflow-y-auto scroller-hidden">
-
-            {/* PASO 1: CARRITO */}
+          <div className="flex-grow overflow-y-auto scroller-hidden bg-neutral-50/30">
             {checkoutStep === 'cart' && (
-              <div className="p-5 space-y-4">
+              <div className="p-6 space-y-4">
                 {cartItemsCount === 0 ? (
-                  <p className="text-center text-neutral-500 pt-10">Tu carrito está vacío.</p>
+                  <div className="flex flex-col items-center justify-center pt-20 text-neutral-400">
+                    <ShoppingCart className="h-16 w-16 mb-4 opacity-50" />
+                    <p className="font-bold">Tu carrito está vacío.</p>
+                  </div>
                 ) : Object.values(cart).map(item => (
-                  <div key={item.id} className="flex items-center gap-4 p-3 border border-neutral-100 rounded-xl bg-white shadow-sm">
-                    {item.image_url && <img src={item.image_url} alt={item.name} className="w-16 h-16 object-cover rounded-lg bg-neutral-50" />}
+                  <div key={item.id} className="flex items-center gap-4 p-3 border border-neutral-100 rounded-2xl bg-white shadow-sm">
+                    {item.image_url ? <img src={item.image_url} alt={item.name} className="w-16 h-16 object-contain rounded-xl bg-neutral-50 p-1" /> : <div className="w-16 h-16 bg-neutral-100 rounded-xl flex items-center justify-center text-[10px] text-neutral-400 font-bold">Sin foto</div>}
                     <div className="flex-grow min-w-0">
-                      <p className="font-semibold text-neutral-900 text-sm truncate">{item.name}</p>
-                      <p className="text-orange-600 font-black text-sm">${(item.price * item.quantity).toLocaleString('es-AR')}</p>
-                      <div className="flex items-center gap-2 mt-2">
-                        <button onClick={() => updateQuantity(item.id, -1)} className="w-7 h-7 flex items-center justify-center border border-neutral-200 rounded-md hover:bg-neutral-100 font-bold">-</button>
-                        <span className="text-sm font-bold w-6 text-center">{item.quantity}</span>
-                        <button onClick={() => updateQuantity(item.id, 1)} className="w-7 h-7 flex items-center justify-center border border-neutral-200 rounded-md hover:bg-neutral-100 font-bold">+</button>
+                      <p className="font-bold text-neutral-900 text-sm truncate">{item.name}</p>
+                      <p className="font-black text-sm" style={{ color: themeColor }}>${(item.price * item.quantity).toLocaleString('es-AR')}</p>
+                      <div className="flex items-center gap-3 mt-2">
+                        <button onClick={() => updateQuantity(item.id, -1)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-neutral-100 hover:bg-neutral-200 font-black text-neutral-600 transition-colors">-</button>
+                        <span className="text-sm font-black w-4 text-center">{item.quantity}</span>
+                        <button onClick={() => updateQuantity(item.id, 1)} className="w-7 h-7 flex items-center justify-center rounded-lg bg-neutral-100 hover:bg-neutral-200 font-black text-neutral-600 transition-colors">+</button>
                       </div>
                     </div>
                     <button onClick={() => removeFromCart(item.id)} className="text-neutral-300 hover:text-red-500 p-2 transition-colors">
@@ -363,50 +379,47 @@ export default function CatalogoEmpretiendaStyle() {
               </div>
             )}
 
-            {/* PASO 2: FORMULARIO */}
             {checkoutStep === 'form' && (
               <form id="checkout-form" onSubmit={handleCheckoutSubmit} className="p-6 space-y-5">
                 <div>
-                  <label className="block text-xs font-bold text-neutral-600 uppercase mb-1.5">Tu Nombre</label>
-                  <input type="text" required value={customerData.name} onChange={e => setCustomerData({ ...customerData, name: e.target.value })} className="w-full p-3 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Ej: Juan Pérez" />
+                  <label className="block text-xs font-black text-neutral-500 uppercase mb-2">Tu Nombre</label>
+                  <input type="text" required value={customerData.name} onChange={e => setCustomerData({ ...customerData, name: e.target.value })} className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none transition-all focus:border-neutral-400 focus:ring-4 focus:ring-neutral-100" placeholder="Ej: Juan Pérez" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-neutral-600 uppercase mb-1.5">Tu Teléfono (Para enviarte resumen)</label>
-                  <input type="tel" required value={customerData.phone} onChange={e => setCustomerData({ ...customerData, phone: e.target.value })} className="w-full p-3 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Ej: 549223..." />
+                  <label className="block text-xs font-black text-neutral-500 uppercase mb-2">Tu Teléfono</label>
+                  <input type="tel" required value={customerData.phone} onChange={e => setCustomerData({ ...customerData, phone: e.target.value })} className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none transition-all focus:border-neutral-400 focus:ring-4 focus:ring-neutral-100" placeholder="Ej: 549223..." />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-neutral-600 uppercase mb-1.5">Enviar pedido a:</label>
-                  <select value={customerData.selectedSeller} onChange={e => setCustomerData({ ...customerData, selectedSeller: e.target.value })} className="w-full p-3 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none bg-white">
+                  <label className="block text-xs font-black text-neutral-500 uppercase mb-2">Enviar pedido a:</label>
+                  <select value={customerData.selectedSeller} onChange={e => setCustomerData({ ...customerData, selectedSeller: e.target.value })} className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 bg-white outline-none font-bold">
                     {WHATSAPP_NUMBERS.map(opt => (
                       <option key={opt.id} value={opt.phone}>{opt.label}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-neutral-600 uppercase mb-1.5">Observaciones (Opcional)</label>
-                  <textarea rows={3} value={customerData.notes} onChange={e => setCustomerData({ ...customerData, notes: e.target.value })} className="w-full p-3 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Talles, colores, detalles de entrega..."></textarea>
+                  <label className="block text-xs font-black text-neutral-500 uppercase mb-2">Observaciones</label>
+                  <textarea rows={3} value={customerData.notes} onChange={e => setCustomerData({ ...customerData, notes: e.target.value })} className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none transition-all focus:border-neutral-400 focus:ring-4 focus:ring-neutral-100" placeholder="Aclaraciones sobre el pedido..."></textarea>
                 </div>
               </form>
             )}
 
-            {/* PASO 3: PROCESANDO */}
             {checkoutStep === 'processing' && (
               <div className="p-8 flex flex-col items-center justify-center h-full text-center space-y-6">
-                <div className="w-14 h-14 border-4 border-neutral-200 border-t-orange-500 rounded-full animate-spin"></div>
+                <div className="w-14 h-14 border-4 border-neutral-100 rounded-full animate-spin" style={{ borderTopColor: themeColor }}></div>
                 <div>
                   <h3 className="text-xl font-black text-neutral-900">Procesando Envío...</h3>
-                  <p className="text-neutral-500 mt-2 text-sm">Enviando mensajes de WhatsApp al vendedor y al cliente.</p>
+                  <p className="text-neutral-500 mt-2 text-sm font-medium">Estamos enviando el detalle al sistema.</p>
                 </div>
               </div>
             )}
 
-            {/* PASO 4: ÉXITO */}
             {checkoutStep === 'success' && (
               <div className="p-8 flex flex-col items-center justify-center h-full text-center space-y-4">
                 <CheckCircle2 className="h-20 w-20 text-green-500" />
                 <h3 className="text-2xl font-black text-neutral-900">¡Pedido Confirmado!</h3>
-                <p className="text-neutral-500">El detalle del pedido fue enviado silenciosamente a los WhatsApp correspondientes.</p>
-                <button onClick={() => { setIsCartOpen(false); setCheckoutStep('cart'); }} className="mt-6 font-bold text-orange-500 hover:text-orange-600">
+                <p className="text-neutral-500 font-medium">El detalle del pedido fue registrado correctamente.</p>
+                <button onClick={() => { setIsCartOpen(false); setCheckoutStep('cart'); }} className="mt-6 font-bold hover:opacity-80 transition-opacity" style={{ color: themeColor }}>
                   Volver a la tienda
                 </button>
               </div>
@@ -415,23 +428,24 @@ export default function CatalogoEmpretiendaStyle() {
 
           {/* FOOTER DEL CARRITO */}
           {checkoutStep !== 'success' && checkoutStep !== 'processing' && cartItemsCount > 0 && (
-            <div className="p-5 border-t border-neutral-200 bg-neutral-50">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-neutral-500 font-medium">Total a pagar:</span>
-                <span className="text-2xl font-black text-neutral-900">${cartTotal.toLocaleString('es-AR')}</span>
+            <div className="p-6 border-t border-neutral-100 bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.03)]">
+              <div className="flex items-center justify-between mb-5">
+                <span className="text-neutral-500 font-bold">Total a pagar:</span>
+                <span className="text-3xl font-black text-neutral-900">${cartTotal.toLocaleString('es-AR')}</span>
               </div>
 
               {checkoutStep === 'cart' ? (
                 <button
                   onClick={() => setCheckoutStep('form')}
-                  className="w-full bg-orange-500 text-white font-black py-4 rounded-xl hover:bg-orange-600 transition-transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-orange-500/30"
+                  className="w-full text-white font-black py-4 rounded-xl transition-all active:scale-95 shadow-lg hover:opacity-90"
+                  style={{ backgroundColor: themeColor }}
                 >
                   Continuar Compra
                 </button>
               ) : (
                 <div className="flex gap-3">
-                  <button onClick={() => setCheckoutStep('cart')} className="px-4 py-4 font-bold text-neutral-500 hover:text-neutral-900 transition-colors">Atrás</button>
-                  <button type="submit" form="checkout-form" className="flex-grow bg-green-500 text-white font-black py-4 rounded-xl hover:bg-green-600 transition-transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-500/30">
+                  <button onClick={() => setCheckoutStep('cart')} className="px-5 py-4 font-black text-neutral-500 hover:text-neutral-900 bg-neutral-100 hover:bg-neutral-200 rounded-xl transition-colors">Atrás</button>
+                  <button type="submit" form="checkout-form" className="flex-grow text-white font-black py-4 rounded-xl transition-all active:scale-95 shadow-lg hover:opacity-90" style={{ backgroundColor: themeColor }}>
                     Confirmar Pedido
                   </button>
                 </div>
