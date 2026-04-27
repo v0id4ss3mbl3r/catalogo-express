@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Search, Edit2, Trash2, Package, AlertCircle, Tags, X, Eye, EyeOff, Percent, LayoutDashboard, Settings, LogOut, Image as ImageIcon } from 'lucide-react';
+import { Search, Edit2, Trash2, Package, AlertCircle, Tags, X, Eye, EyeOff, Percent, LayoutDashboard, Settings, LogOut, Image as ImageIcon, Plus } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -14,22 +14,24 @@ export default function AdminPanel() {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState('');
 
-    // Navegación del Panel
     const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'settings'>('products');
 
-    // Datos
     const [products, setProducts] = useState<any[]>([]);
     const [storeSettings, setStoreSettings] = useState<any>(null);
+    const [categories, setCategories] = useState<any[]>([]);
 
-    // Buscador y Edición de Productos
     const [searchTerm, setSearchTerm] = useState('');
     const [editingProduct, setEditingProduct] = useState<any | null>(null);
     const [quickFilter, setQuickFilter] = useState<'all' | 'out_of_stock' | 'on_sale' | 'hidden'>('all');
+
+    // Estado para creación de categoría inline en el form de producto
+    const [isCreatingCategoryInline, setIsCreatingCategoryInline] = useState(false);
 
     useEffect(() => {
         if (isAuthed) {
             fetchProducts();
             fetchSettings();
+            fetchCategories();
         }
     }, [isAuthed]);
 
@@ -42,6 +44,23 @@ export default function AdminPanel() {
         const { data } = await supabase.from('store_settings').select('*').eq('id', 1).single();
         if (data) setStoreSettings(data);
     };
+
+    const fetchCategories = async () => {
+        const { data } = await supabase.from('categories').select('*').order('name');
+        if (data) setCategories(data);
+    };
+
+    // Función para construir el árbol visual de categorías (Guiones para subcategorías)
+    const buildCategoryTree = (cats: any[], parentId: number | null = null, prefix = '') => {
+        let result: any[] = [];
+        const children = cats.filter(c => c.parent_id === parentId);
+        children.forEach(c => {
+            result.push({ ...c, displayName: prefix + c.name });
+            result = result.concat(buildCategoryTree(cats, c.id, prefix + '— '));
+        });
+        return result;
+    };
+    const flatCategories = buildCategoryTree(categories);
 
     const handleLogin = (e: React.FormEvent) => {
         e.preventDefault();
@@ -58,6 +77,36 @@ export default function AdminPanel() {
         setPassword('');
     };
 
+    // --- GUARDAR CATEGORÍA DESDE LA PESTAÑA ---
+    const handleCategorySubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        setLoading(true);
+
+        const formData = new FormData(e.currentTarget);
+        const name = formData.get('name') as string;
+        const parentId = formData.get('parent_id') as string;
+
+        try {
+            const { error } = await supabase.from('categories').insert([{
+                name,
+                parent_id: parentId ? parseInt(parentId) : null
+            }]);
+            if (error) throw error;
+            e.currentTarget.reset();
+            fetchCategories();
+        } catch (error: any) {
+            alert(`Error al guardar categoría: ${error.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDeleteCategory = async (id: number) => {
+        if (!confirm('Eliminar esta categoría también eliminará sus subcategorías. ¿Continuar?')) return;
+        const { error } = await supabase.from('categories').delete().eq('id', id);
+        if (!error) fetchCategories();
+    };
+
     // --- GUARDAR PRODUCTO ---
     const handleProductSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -71,21 +120,41 @@ export default function AdminPanel() {
         const price = formData.get('price') as string;
         const compareAtPrice = formData.get('compare_at_price') as string;
         const description = formData.get('description') as string;
-        const category = formData.get('category') as string;
         const file = formData.get('image') as File;
 
         try {
-            let imageUrl = editingProduct ? editingProduct.image_url : '';
+            // Gestión de la categoría (Creación Inline vs Selección)
+            let finalCategoryId = formData.get('category_id') ? parseInt(formData.get('category_id') as string) : null;
+            let finalCategoryText = '';
 
+            if (isCreatingCategoryInline) {
+                const newCatName = formData.get('new_category_name') as string;
+                const newCatParent = formData.get('new_category_parent') as string;
+                if (newCatName) {
+                    const { data: newCat, error: catError } = await supabase.from('categories').insert([{
+                        name: newCatName,
+                        parent_id: newCatParent ? parseInt(newCatParent) : null
+                    }]).select().single();
+
+                    if (catError) throw catError;
+                    finalCategoryId = newCat.id;
+                    finalCategoryText = newCat.name;
+                    fetchCategories(); // Refrescar lista global
+                }
+            } else if (finalCategoryId) {
+                const cat = categories.find(c => c.id === finalCategoryId);
+                if (cat) finalCategoryText = cat.name;
+            }
+
+            // Gestión de la imagen
+            let imageUrl = editingProduct ? editingProduct.image_url : '';
             if (file && file.size > 0) {
                 const fileExt = file.name.split('.').pop();
                 const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-
                 const { error: uploadError } = await supabase.storage.from('product-images').upload(fileName, file);
                 if (uploadError) throw uploadError;
 
                 const { data: publicUrlData } = supabase.storage.from('product-images').getPublicUrl(fileName);
-
                 if (editingProduct && editingProduct.image_url) {
                     const urlParts = editingProduct.image_url.split('/');
                     const oldFileName = urlParts[urlParts.length - 1];
@@ -96,21 +165,24 @@ export default function AdminPanel() {
 
             const productData = {
                 name, price: parseFloat(price), compare_at_price: compareAtPrice ? parseFloat(compareAtPrice) : null,
-                description, category, image_url: imageUrl
+                description, image_url: imageUrl,
+                category_id: finalCategoryId,
+                category: finalCategoryText // Mantenemos el string por retrocompatibilidad con la Home
             };
 
             if (editingProduct) {
                 const { error } = await supabase.from('products').update(productData).eq('id', editingProduct.id);
                 if (error) throw error;
-                setMessage('¡Producto actualizado con éxito!');
+                setMessage('¡Producto actualizado!');
             } else {
                 const { error } = await supabase.from('products').insert([{ ...productData, in_stock: true, is_active: true }]);
                 if (error) throw error;
-                setMessage('¡Producto publicado con éxito!');
+                setMessage('¡Producto publicado!');
             }
 
             form.reset();
             setEditingProduct(null);
+            setIsCreatingCategoryInline(false);
             fetchProducts();
         } catch (error: any) {
             setMessage(`Error al guardar: ${error.message}`);
@@ -133,7 +205,6 @@ export default function AdminPanel() {
 
         try {
             let logoUrl = storeSettings?.logo_url || '';
-
             if (file && file.size > 0) {
                 const fileExt = file.name.split('.').pop();
                 const fileName = `logo-${Date.now()}.${fileExt}`;
@@ -241,21 +312,43 @@ export default function AdminPanel() {
                         <div className="xl:col-span-4 bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-neutral-100 h-fit sticky top-6">
                             <div className="flex items-center justify-between mb-6">
                                 <h2 className="text-xl font-black text-neutral-900">{editingProduct ? 'Editar Producto' : 'Nuevo Producto'}</h2>
-                                {editingProduct && <button onClick={() => setEditingProduct(null)} className="text-neutral-400 hover:text-neutral-900 flex items-center gap-1 text-xs font-bold transition-colors"><X className="w-4 h-4" /> Cancelar</button>}
+                                {editingProduct && <button onClick={() => { setEditingProduct(null); setIsCreatingCategoryInline(false); }} className="text-neutral-400 hover:text-neutral-900 flex items-center gap-1 text-xs font-bold transition-colors"><X className="w-4 h-4" /> Cancelar</button>}
                             </div>
 
                             <form key={editingProduct ? editingProduct.id : 'new'} onSubmit={handleProductSubmit} className="space-y-4">
                                 <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Nombre</label><input name="name" type="text" defaultValue={editingProduct?.name || ''} required className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 outline-none" /></div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Precio Oferta ($)</label><input name="price" type="number" step="0.01" defaultValue={editingProduct?.price || ''} required className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 outline-none" /></div>
-                                    <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Precio Lista ($)</label><input name="compare_at_price" type="number" step="0.01" defaultValue={editingProduct?.compare_at_price || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 bg-neutral-50 outline-none" placeholder="Opcional" /></div>
+                                    <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Precio Oferta</label><input name="price" type="number" step="0.01" defaultValue={editingProduct?.price || ''} required className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 outline-none" /></div>
+                                    <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Precio Lista</label><input name="compare_at_price" type="number" step="0.01" defaultValue={editingProduct?.compare_at_price || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 bg-neutral-50 outline-none" placeholder="Opcional" /></div>
                                 </div>
-                                <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Categoría</label><input name="category" type="text" defaultValue={editingProduct?.category || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 outline-none" placeholder="Ej: Ropa" /></div>
+
+                                {/* SELECTOR DE CATEGORÍA AVANZADO */}
+                                <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-100">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="block text-xs font-bold text-neutral-500 uppercase">Categoría</label>
+                                        <button type="button" onClick={() => setIsCreatingCategoryInline(!isCreatingCategoryInline)} className="text-xs text-orange-500 font-bold hover:underline">
+                                            {isCreatingCategoryInline ? 'Seleccionar existente' : '+ Crear Nueva'}
+                                        </button>
+                                    </div>
+
+                                    {isCreatingCategoryInline ? (
+                                        <div className="space-y-2">
+                                            <input name="new_category_name" type="text" placeholder="Nombre de la nueva categoría" className="w-full p-2 border border-neutral-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-orange-500" />
+                                            <select name="new_category_parent" className="w-full p-2 border border-neutral-200 rounded-lg text-sm outline-none bg-white">
+                                                <option value="">Sin categoría principal (Categoría Padre)</option>
+                                                {flatCategories.map(c => <option key={c.id} value={c.id}>{c.displayName}</option>)}
+                                            </select>
+                                        </div>
+                                    ) : (
+                                        <select name="category_id" defaultValue={editingProduct?.category_id || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 outline-none bg-white">
+                                            <option value="">Sin categoría</option>
+                                            {flatCategories.map(c => <option key={c.id} value={c.id}>{c.displayName}</option>)}
+                                        </select>
+                                    )}
+                                </div>
+
                                 <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Descripción</label><textarea name="description" rows={3} defaultValue={editingProduct?.description || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 outline-none"></textarea></div>
-                                <div>
-                                    <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Imagen (Opcional)</label>
-                                    <input name="image" type="file" accept="image/*" className="w-full p-2 border border-neutral-200 rounded-lg text-neutral-900 text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-neutral-100 file:text-neutral-700 hover:file:bg-neutral-200" />
-                                </div>
+                                <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Imagen (Opcional)</label><input name="image" type="file" accept="image/*" className="w-full p-2 border border-neutral-200 rounded-lg text-neutral-900 text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-neutral-100 file:text-neutral-700 hover:file:bg-neutral-200" /></div>
                                 <button type="submit" disabled={loading} className="w-full bg-neutral-900 text-white font-bold py-3.5 rounded-lg hover:bg-neutral-800 disabled:bg-neutral-400 mt-4 shadow-md">
                                     {loading ? 'Guardando...' : editingProduct ? 'Actualizar Producto' : 'Publicar Producto'}
                                 </button>
@@ -287,14 +380,20 @@ export default function AdminPanel() {
                                             <div className="flex items-center gap-4 overflow-hidden">
                                                 {product.image_url ? <img src={product.image_url} className="w-12 h-12 object-cover rounded-lg bg-neutral-100 flex-shrink-0" /> : <div className="w-12 h-12 bg-neutral-100 rounded-lg flex items-center justify-center text-neutral-300"><ImageIcon className="w-5 h-5" /></div>}
                                                 <div className="min-w-0">
-                                                    <div className="flex items-center gap-2"><p className="font-bold text-neutral-900 text-sm truncate">{product.name}</p></div>
-                                                    <div className="flex items-center gap-2 mt-0.5"><p className="text-neutral-500 text-xs font-bold">${product.price.toLocaleString('es-AR')}</p></div>
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="font-bold text-neutral-900 text-sm truncate">{product.name}</p>
+                                                        {!product.is_active && <span className="bg-neutral-200 text-neutral-600 text-[10px] uppercase font-black px-1.5 py-0.5 rounded">Oculto</span>}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                        <p className="text-neutral-500 text-xs font-bold">${product.price.toLocaleString('es-AR')}</p>
+                                                        {product.category && <span className="text-neutral-400 text-[10px] bg-neutral-100 px-1.5 py-0.5 rounded">{product.category}</span>}
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                                                 <button onClick={() => toggleVisibility(product.id, product.is_active)} className="p-2 text-neutral-400 hover:text-orange-500 bg-white rounded-lg"><Eye className="w-4 h-4" /></button>
                                                 <button onClick={() => toggleStock(product.id, product.in_stock)} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-neutral-100 text-neutral-600">Stock</button>
-                                                <button onClick={() => setEditingProduct(product)} className="p-2 text-neutral-400 hover:text-orange-500 bg-white rounded-lg"><Edit2 className="w-4 h-4" /></button>
+                                                <button onClick={() => { setEditingProduct(product); setIsCreatingCategoryInline(false); }} className="p-2 text-neutral-400 hover:text-orange-500 bg-white rounded-lg"><Edit2 className="w-4 h-4" /></button>
                                                 <button onClick={() => handleDelete(product.id, product.image_url)} className="p-2 text-neutral-400 hover:text-red-500 bg-white rounded-lg"><Trash2 className="w-4 h-4" /></button>
                                             </div>
                                         </div>
@@ -307,10 +406,40 @@ export default function AdminPanel() {
 
                 {/* ---------------- PESTAÑA: CATEGORÍAS ---------------- */}
                 {activeTab === 'categories' && (
-                    <div className="max-w-3xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-neutral-100 text-center py-20">
-                        <Tags className="w-16 h-16 text-neutral-200 mx-auto mb-4" />
-                        <h2 className="text-2xl font-black text-neutral-900 mb-2">Sistema de Categorías</h2>
-                        <p className="text-neutral-500">Próximamente podrás crear subcategorías y organizarlas jerárquicamente.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+                        <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-neutral-100 h-fit">
+                            <h2 className="text-xl font-black text-neutral-900 mb-6">Crear Categoría</h2>
+                            <form onSubmit={handleCategorySubmit} className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Nombre de la Categoría</label>
+                                    <input name="name" type="text" required className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 outline-none" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Depende de (Categoría Padre)</label>
+                                    <select name="parent_id" className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 bg-white outline-none">
+                                        <option value="">Ninguna (Es categoría principal)</option>
+                                        {flatCategories.map(c => <option key={c.id} value={c.id}>{c.displayName}</option>)}
+                                    </select>
+                                </div>
+                                <button type="submit" disabled={loading} className="w-full bg-neutral-900 text-white font-bold py-3.5 rounded-lg hover:bg-neutral-800 transition-colors">
+                                    Guardar Categoría
+                                </button>
+                            </form>
+                        </div>
+
+                        <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-neutral-100">
+                            <h2 className="text-xl font-black text-neutral-900 mb-6">Árbol de Categorías</h2>
+                            <div className="space-y-2">
+                                {flatCategories.length === 0 ? (
+                                    <p className="text-sm text-neutral-500 text-center py-4">No hay categorías creadas aún.</p>
+                                ) : flatCategories.map(c => (
+                                    <div key={c.id} className="flex items-center justify-between p-3 bg-neutral-50 border border-neutral-100 rounded-lg">
+                                        <span className="font-semibold text-neutral-700 text-sm">{c.displayName}</span>
+                                        <button onClick={() => handleDeleteCategory(c.id)} className="text-neutral-400 hover:text-red-500 transition-colors p-1"><Trash2 className="w-4 h-4" /></button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </div>
                 )}
 
