@@ -25,6 +25,9 @@ export default function CatalogoEmpretiendaStyle() {
   const [cart, setCart] = useState<{ [key: string]: any }>({});
   const [isCartOpen, setIsCartOpen] = useState(false);
 
+  // ESTADO FALTANTE CORREGIDO: Para manejar el modal de detalles
+  const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
+
   // Estados para el flujo de Checkout y UI
   const [checkoutStep, setCheckoutStep] = useState<'cart' | 'form' | 'success'>('cart');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -202,15 +205,17 @@ export default function CatalogoEmpretiendaStyle() {
         ) : filteredProducts.map((product) => (
           <div
             key={product.id}
-            className="bg-white rounded-xl shadow-sm border border-neutral-100 overflow-hidden flex flex-col transition-all duration-300 hover:shadow-xl hover:-translate-y-1.5 group"
+            className={`bg-white rounded-xl shadow-sm border border-neutral-100 overflow-hidden flex flex-col transition-all duration-300 hover:shadow-xl hover:-translate-y-1.5 group ${!product.in_stock ? 'opacity-75 grayscale-[0.5]' : 'cursor-pointer'}`}
+            onClick={() => product.in_stock && setSelectedProduct(product)}
           >
             <div className="aspect-square bg-neutral-50 w-full relative overflow-hidden flex items-center justify-center p-4">
+              {!product.in_stock && (
+                <div className="absolute inset-0 bg-white/40 z-20 flex items-center justify-center backdrop-blur-[1px]">
+                  <span className="bg-neutral-900 text-white font-black text-xs tracking-widest uppercase px-4 py-1.5 rounded-full rotate-[-12deg] shadow-lg">Agotado</span>
+                </div>
+              )}
               {product.image_url ? (
-                <img
-                  src={product.image_url}
-                  alt={product.name}
-                  className="w-full h-full object-contain mix-blend-multiply transition-transform duration-500 group-hover:scale-110"
-                />
+                <img src={product.image_url} alt={product.name} className="w-full h-full object-contain mix-blend-multiply transition-transform duration-500 group-hover:scale-110" />
               ) : (
                 <div className="text-neutral-300 text-xs">Sin imagen</div>
               )}
@@ -225,15 +230,59 @@ export default function CatalogoEmpretiendaStyle() {
               </p>
 
               <button
-                onClick={() => addToCart(product)}
-                className="mt-auto w-full text-center bg-neutral-900 text-white text-xs font-bold py-3 rounded-lg hover:bg-orange-500 transition-colors active:scale-95"
+                disabled={!product.in_stock}
+                onClick={(e) => { e.stopPropagation(); addToCart(product); }}
+                className="mt-auto w-full text-center bg-neutral-900 text-white text-xs font-bold py-3 rounded-lg hover:bg-orange-500 transition-colors active:scale-95 disabled:bg-neutral-200 disabled:text-neutral-400 disabled:hover:scale-100 disabled:cursor-not-allowed"
               >
-                Sumar al carrito
+                {product.in_stock ? 'Sumar al carrito' : 'Sin Stock'}
               </button>
             </div>
           </div>
         ))}
       </div>
+
+      {/* MODAL DETALLE DE PRODUCTO */}
+      {selectedProduct && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 opacity-100 transition-opacity">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedProduct(null)}></div>
+
+          <div className="relative bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row transform transition-transform scale-100 max-h-[90vh]">
+            <button onClick={() => setSelectedProduct(null)} className="absolute top-4 right-4 z-10 bg-white/80 backdrop-blur p-1.5 rounded-full text-neutral-500 hover:text-neutral-900 transition-colors">
+              <X className="h-6 w-6" />
+            </button>
+
+            {/* Columna Imagen */}
+            <div className="w-full md:w-1/2 bg-neutral-50 p-6 sm:p-10 flex items-center justify-center min-h-[300px]">
+              {selectedProduct.image_url ? (
+                <img src={selectedProduct.image_url} alt={selectedProduct.name} className="w-full h-full object-contain mix-blend-multiply" />
+              ) : (
+                <div className="text-neutral-400">Sin imagen</div>
+              )}
+            </div>
+
+            {/* Columna Info */}
+            <div className="w-full md:w-1/2 p-6 sm:p-10 flex flex-col overflow-y-auto scroller-hidden">
+              {selectedProduct.category && <span className="text-orange-500 text-xs font-black uppercase tracking-wider mb-2">{selectedProduct.category}</span>}
+              <h2 className="text-2xl sm:text-3xl font-black text-neutral-900 leading-tight mb-4">{selectedProduct.name}</h2>
+              <p className="text-3xl font-black text-neutral-900 mb-6">${selectedProduct.price.toLocaleString('es-AR')}</p>
+
+              <div className="prose prose-sm text-neutral-600 mb-8 whitespace-pre-wrap flex-grow">
+                {selectedProduct.description ? selectedProduct.description : 'Este producto no tiene descripción adicional.'}
+              </div>
+
+              <div className="mt-auto pt-6 border-t border-neutral-100">
+                <button
+                  onClick={() => { addToCart(selectedProduct); setSelectedProduct(null); setIsCartOpen(true); }}
+                  className="w-full bg-orange-500 text-white font-black py-4 rounded-xl hover:bg-orange-600 transition-transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-orange-500/30 flex items-center justify-center gap-2"
+                >
+                  <ShoppingCart className="h-5 w-5" />
+                  Agregar al Carrito
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PANEL LATERAL DEL CARRITO / CHECKOUT */}
       <div className={`fixed inset-0 z-50 transition-opacity duration-300 ${isCartOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
