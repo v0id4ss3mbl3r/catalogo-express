@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Search, Edit2, Trash2, Package, AlertCircle, Tags, X } from 'lucide-react';
+import { Search, Edit2, Trash2, Package, AlertCircle, Tags, X, Eye, EyeOff, Percent } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -15,9 +15,10 @@ export default function AdminPanel() {
     const [message, setMessage] = useState('');
     const [products, setProducts] = useState<any[]>([]);
 
-    // Nuevos estados para Buscador y Edición
+    // Buscador y Edición
     const [searchTerm, setSearchTerm] = useState('');
     const [editingProduct, setEditingProduct] = useState<any | null>(null);
+    const [quickFilter, setQuickFilter] = useState<'all' | 'out_of_stock' | 'on_sale' | 'hidden'>('all');
 
     useEffect(() => {
         if (isAuthed) fetchProducts();
@@ -48,15 +49,14 @@ export default function AdminPanel() {
 
         const name = formData.get('name') as string;
         const price = formData.get('price') as string;
+        const compareAtPrice = formData.get('compare_at_price') as string;
         const description = formData.get('description') as string;
         const category = formData.get('category') as string;
         const file = formData.get('image') as File;
 
         try {
-            // Si estamos editando, mantenemos la URL vieja por defecto
             let imageUrl = editingProduct ? editingProduct.image_url : '';
 
-            // Si el usuario seleccionó un archivo nuevo
             if (file && file.size > 0) {
                 const fileExt = file.name.split('.').pop();
                 const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
@@ -66,7 +66,6 @@ export default function AdminPanel() {
 
                 const { data: publicUrlData } = supabase.storage.from('product-images').getPublicUrl(fileName);
 
-                // BORRADO INTELIGENTE: Si estamos editando y subimos foto nueva, borramos la vieja
                 if (editingProduct && editingProduct.image_url) {
                     const urlParts = editingProduct.image_url.split('/');
                     const oldFileName = urlParts[urlParts.length - 1];
@@ -76,25 +75,27 @@ export default function AdminPanel() {
                 imageUrl = publicUrlData.publicUrl;
             }
 
+            const productData = {
+                name,
+                price: parseFloat(price),
+                compare_at_price: compareAtPrice ? parseFloat(compareAtPrice) : null,
+                description,
+                category,
+                image_url: imageUrl
+            };
+
             if (editingProduct) {
-                // MODO EDICIÓN
-                const { error: dbError } = await supabase
-                    .from('products')
-                    .update({ name, price: parseFloat(price), description, category, image_url: imageUrl })
-                    .eq('id', editingProduct.id);
+                const { error: dbError } = await supabase.from('products').update(productData).eq('id', editingProduct.id);
                 if (dbError) throw dbError;
                 setMessage('¡Producto actualizado con éxito!');
             } else {
-                // MODO CREACIÓN
-                const { error: dbError } = await supabase
-                    .from('products')
-                    .insert([{ name, price: parseFloat(price), description, category, image_url: imageUrl, in_stock: true }]);
+                const { error: dbError } = await supabase.from('products').insert([{ ...productData, in_stock: true, is_active: true }]);
                 if (dbError) throw dbError;
                 setMessage('¡Producto publicado con éxito!');
             }
 
             form.reset();
-            setEditingProduct(null); // Salimos del modo edición
+            setEditingProduct(null);
             fetchProducts();
         } catch (error: any) {
             setMessage(`Error al guardar: ${error.message}`);
@@ -106,15 +107,11 @@ export default function AdminPanel() {
 
     const handleDelete = async (id: number, imageUrl: string) => {
         if (!confirm('¿Seguro que querés eliminar este producto definitivamente?')) return;
-
-        // BORRADO INTELIGENTE: Eliminar archivo del Storage
         if (imageUrl) {
             const urlParts = imageUrl.split('/');
             const fileName = urlParts[urlParts.length - 1];
             await supabase.storage.from('product-images').remove([fileName]);
         }
-
-        // Eliminar de la Base de Datos
         const { error } = await supabase.from('products').delete().eq('id', id);
         if (!error) fetchProducts();
     };
@@ -124,16 +121,27 @@ export default function AdminPanel() {
         if (!error) fetchProducts();
     };
 
+    const toggleVisibility = async (id: number, currentVisibility: boolean) => {
+        const { error } = await supabase.from('products').update({ is_active: !currentVisibility }).eq('id', id);
+        if (!error) fetchProducts();
+    };
+
     // Cálculos para el Mini-Dashboard
     const totalProducts = products.length;
     const outOfStock = products.filter(p => !p.in_stock).length;
-    const uniqueCategories = new Set(products.map(p => p.category).filter(Boolean)).size;
+    const onSale = products.filter(p => p.compare_at_price && p.compare_at_price > p.price).length;
 
-    // Buscador
-    const filteredProducts = products.filter(product =>
-        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (product.category && product.category.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    // Motor de filtrado (Búsqueda + Filtros Rápidos)
+    const filteredProducts = products.filter(product => {
+        const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || (product.category && product.category.toLowerCase().includes(searchTerm.toLowerCase()));
+        const matchesQuickFilter =
+            quickFilter === 'all' ? true :
+                quickFilter === 'out_of_stock' ? !product.in_stock :
+                    quickFilter === 'on_sale' ? (product.compare_at_price && product.compare_at_price > product.price) :
+                        quickFilter === 'hidden' ? !product.is_active : true;
+
+        return matchesSearch && matchesQuickFilter;
+    });
 
     if (!isAuthed) {
         return (
@@ -164,7 +172,6 @@ export default function AdminPanel() {
                         )}
                     </div>
 
-                    {/* Usamos 'key' para forzar el reseteo del form cuando cambia el modo edición */}
                     <form key={editingProduct ? editingProduct.id : 'new'} onSubmit={handleSubmit} className="space-y-4">
                         <div>
                             <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Nombre</label>
@@ -172,13 +179,17 @@ export default function AdminPanel() {
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Precio ($)</label>
-                                <input name="price" type="number" defaultValue={editingProduct?.price || ''} required className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none transition-shadow" />
+                                <label className="block text-xs font-bold text-neutral-500 uppercase mb-1" title="Precio de venta actual">Precio Oferta ($)</label>
+                                <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price || ''} required className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none transition-shadow" />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Categoría</label>
-                                <input name="category" type="text" defaultValue={editingProduct?.category || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none transition-shadow" placeholder="Ej: Ropa" />
+                                <label className="block text-xs font-bold text-neutral-500 uppercase mb-1" title="Aparecerá tachado en la tienda">Precio Lista ($)</label>
+                                <input name="compare_at_price" type="number" step="0.01" defaultValue={editingProduct?.compare_at_price || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none transition-shadow bg-neutral-50" placeholder="Opcional" />
                             </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Categoría</label>
+                            <input name="category" type="text" defaultValue={editingProduct?.category || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none transition-shadow" placeholder="Ej: Ropa" />
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Descripción</label>
@@ -186,11 +197,7 @@ export default function AdminPanel() {
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Imagen {editingProduct && '(Opcional)'}</label>
-                            {/* En modo edición la imagen no es requerida */}
                             <input name="image" type="file" accept="image/*" required={!editingProduct} className="w-full p-2 border border-neutral-200 rounded-lg text-neutral-900 text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-neutral-100 file:text-neutral-700 hover:file:bg-neutral-200 transition-colors" />
-                            {editingProduct && editingProduct.image_url && (
-                                <p className="text-xs text-neutral-400 mt-2">Mantener vacío para conservar la foto actual.</p>
-                            )}
                         </div>
                         <button type="submit" disabled={loading} className="w-full bg-neutral-900 text-white font-bold py-3.5 rounded-lg hover:bg-neutral-800 transition-colors disabled:bg-neutral-400 mt-4 shadow-md">
                             {loading ? 'Guardando...' : editingProduct ? 'Actualizar Producto' : 'Publicar Producto'}
@@ -213,26 +220,34 @@ export default function AdminPanel() {
                             <div><p className="text-sm font-bold text-neutral-500">Sin Stock</p><p className="text-2xl font-black text-neutral-900">{outOfStock}</p></div>
                         </div>
                         <div className="bg-white p-5 rounded-2xl shadow-sm border border-neutral-100 flex items-center gap-4">
-                            <div className="p-3 bg-orange-50 rounded-xl text-orange-500"><Tags className="w-6 h-6" /></div>
-                            <div><p className="text-sm font-bold text-neutral-500">Categorías</p><p className="text-2xl font-black text-neutral-900">{uniqueCategories}</p></div>
+                            <div className="p-3 bg-green-50 rounded-xl text-green-500"><Percent className="w-6 h-6" /></div>
+                            <div><p className="text-sm font-bold text-neutral-500">En Oferta</p><p className="text-2xl font-black text-neutral-900">{onSale}</p></div>
                         </div>
                     </div>
 
                     {/* Gestor de Inventario */}
                     <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-neutral-100">
-                        <div className="flex flex-col sm:flex-row items-center justify-between mb-6 gap-4">
-                            <h2 className="text-xl font-black text-neutral-900">Inventario</h2>
+                        <div className="flex flex-col mb-6 gap-4">
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                                <h2 className="text-xl font-black text-neutral-900">Inventario</h2>
+                                <div className="relative w-full sm:w-64">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-4 w-4" />
+                                    <input
+                                        type="text"
+                                        placeholder="Buscar producto..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full pl-9 pr-3 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                    />
+                                </div>
+                            </div>
 
-                            {/* Buscador */}
-                            <div className="relative w-full sm:w-64">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-4 w-4" />
-                                <input
-                                    type="text"
-                                    placeholder="Buscar por nombre..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="w-full pl-9 pr-3 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                                />
+                            {/* Filtros Rápidos (Pills) */}
+                            <div className="flex gap-2 overflow-x-auto scroller-hidden pb-1">
+                                <button onClick={() => setQuickFilter('all')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${quickFilter === 'all' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}>Todos</button>
+                                <button onClick={() => setQuickFilter('on_sale')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${quickFilter === 'on_sale' ? 'bg-green-500 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}>Ofertas</button>
+                                <button onClick={() => setQuickFilter('out_of_stock')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${quickFilter === 'out_of_stock' ? 'bg-red-500 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}>Agotados</button>
+                                <button onClick={() => setQuickFilter('hidden')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${quickFilter === 'hidden' ? 'bg-orange-500 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}>Ocultos</button>
                             </div>
                         </div>
 
@@ -240,15 +255,26 @@ export default function AdminPanel() {
                             {filteredProducts.length === 0 ? (
                                 <p className="text-center text-neutral-500 py-10 text-sm font-medium">No se encontraron productos.</p>
                             ) : filteredProducts.map(product => (
-                                <div key={product.id} className={`flex items-center justify-between p-3 border rounded-xl transition-all hover:shadow-sm ${product.in_stock ? 'border-neutral-200 bg-white' : 'border-red-100 bg-red-50/50 grayscale-[0.2]'}`}>
+                                <div key={product.id} className={`flex items-center justify-between p-3 border rounded-xl transition-all hover:shadow-sm ${!product.is_active ? 'opacity-50 border-dashed bg-neutral-50' : product.in_stock ? 'border-neutral-200 bg-white' : 'border-red-100 bg-red-50/50 grayscale-[0.2]'}`}>
                                     <div className="flex items-center gap-4 overflow-hidden">
                                         {product.image_url && <img src={product.image_url} alt={product.name} className="w-14 h-14 object-cover rounded-lg bg-neutral-100 flex-shrink-0" />}
                                         <div className="min-w-0">
-                                            <p className="font-bold text-neutral-900 text-sm truncate">{product.name}</p>
-                                            <p className="text-neutral-500 text-xs mt-0.5">${product.price.toLocaleString('es-AR')} {product.category && `• ${product.category}`}</p>
+                                            <div className="flex items-center gap-2">
+                                                <p className="font-bold text-neutral-900 text-sm truncate">{product.name}</p>
+                                                {!product.is_active && <span className="bg-neutral-200 text-neutral-600 text-[10px] uppercase font-black px-1.5 py-0.5 rounded">Oculto</span>}
+                                            </div>
+                                            <div className="flex items-center gap-2 mt-0.5">
+                                                <p className="text-neutral-500 text-xs font-bold">${product.price.toLocaleString('es-AR')}</p>
+                                                {product.compare_at_price && product.compare_at_price > product.price && (
+                                                    <p className="text-neutral-400 text-[10px] line-through">${product.compare_at_price.toLocaleString('es-AR')}</p>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                                        <button onClick={() => toggleVisibility(product.id, product.is_active)} className={`p-2 transition-colors rounded-lg ${product.is_active ? 'text-neutral-400 hover:text-orange-500 bg-white hover:bg-orange-50' : 'text-orange-500 bg-orange-50'}`} title={product.is_active ? "Ocultar en la tienda" : "Mostrar en la tienda"}>
+                                            {product.is_active ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                                        </button>
                                         <button onClick={() => toggleStock(product.id, product.in_stock)} className={`px-3 py-2 rounded-lg text-xs font-bold transition-colors ${product.in_stock ? 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}>
                                             {product.in_stock ? 'Pausar' : 'Agotado'}
                                         </button>

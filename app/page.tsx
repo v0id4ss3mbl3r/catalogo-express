@@ -55,7 +55,7 @@ export default function CatalogoEmpretiendaStyle() {
   const fetchInitialData = async () => {
     try {
       setLoading(true);
-      const { data: prods } = await supabase.from('products').select('*');
+      const { data: prods } = await supabase.from('products').select('*').eq('is_active', true);
       if (prods) setProducts(prods);
 
       const { data: cats } = await supabase.from('products').select('category').not('category', 'is', null).not('category', 'eq', '');
@@ -251,10 +251,21 @@ export default function CatalogoEmpretiendaStyle() {
               <h3 className="text-sm font-semibold text-neutral-800 line-clamp-2 min-h-[40px] group-hover:text-orange-500 transition-colors">
                 {product.name}
               </h3>
-              <p className="text-lg font-black text-neutral-950 mt-1 mb-4">
-                ${product.price.toLocaleString('es-AR')}
-              </p>
-
+              <div className="mt-1 mb-4">
+                <p className="text-lg font-black text-neutral-950 flex items-center gap-2 justify-center">
+                  ${product.price.toLocaleString('es-AR')}
+                  {product.compare_at_price && product.compare_at_price > product.price && (
+                    <span className="text-xs text-neutral-400 line-through font-medium">
+                      ${product.compare_at_price.toLocaleString('es-AR')}
+                    </span>
+                  )}
+                </p>
+                {product.compare_at_price && product.compare_at_price > product.price && (
+                  <span className="bg-green-100 text-green-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-full inline-block mt-1">
+                    {Math.round(((product.compare_at_price - product.price) / product.compare_at_price) * 100)}% OFF
+                  </span>
+                )}
+              </div>
               <button
                 disabled={!product.in_stock}
                 onClick={(e) => { e.stopPropagation(); addToCart(product); }}
