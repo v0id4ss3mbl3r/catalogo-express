@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Search, Edit2, Trash2, Package, AlertCircle, Tags, X, Eye, EyeOff, Percent } from 'lucide-react';
+import { Search, Edit2, Trash2, Package, AlertCircle, Tags, X, Eye, EyeOff, Percent, LayoutDashboard, Settings, LogOut, Image as ImageIcon } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -13,15 +13,24 @@ export default function AdminPanel() {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState('');
-    const [products, setProducts] = useState<any[]>([]);
 
-    // Buscador y Edición
+    // Navegación del Panel
+    const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'settings'>('products');
+
+    // Datos
+    const [products, setProducts] = useState<any[]>([]);
+    const [storeSettings, setStoreSettings] = useState<any>(null);
+
+    // Buscador y Edición de Productos
     const [searchTerm, setSearchTerm] = useState('');
     const [editingProduct, setEditingProduct] = useState<any | null>(null);
     const [quickFilter, setQuickFilter] = useState<'all' | 'out_of_stock' | 'on_sale' | 'hidden'>('all');
 
     useEffect(() => {
-        if (isAuthed) fetchProducts();
+        if (isAuthed) {
+            fetchProducts();
+            fetchSettings();
+        }
     }, [isAuthed]);
 
     const fetchProducts = async () => {
@@ -29,7 +38,12 @@ export default function AdminPanel() {
         if (data) setProducts(data);
     };
 
-    const checkPassword = (e: React.FormEvent) => {
+    const fetchSettings = async () => {
+        const { data } = await supabase.from('store_settings').select('*').eq('id', 1).single();
+        if (data) setStoreSettings(data);
+    };
+
+    const handleLogin = (e: React.FormEvent) => {
         e.preventDefault();
         if (password === 'v0id2026') {
             setIsAuthed(true);
@@ -39,7 +53,13 @@ export default function AdminPanel() {
         }
     };
 
-    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    const handleLogout = () => {
+        setIsAuthed(false);
+        setPassword('');
+    };
+
+    // --- GUARDAR PRODUCTO ---
+    const handleProductSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setLoading(true);
         setMessage('');
@@ -71,26 +91,21 @@ export default function AdminPanel() {
                     const oldFileName = urlParts[urlParts.length - 1];
                     await supabase.storage.from('product-images').remove([oldFileName]);
                 }
-
                 imageUrl = publicUrlData.publicUrl;
             }
 
             const productData = {
-                name,
-                price: parseFloat(price),
-                compare_at_price: compareAtPrice ? parseFloat(compareAtPrice) : null,
-                description,
-                category,
-                image_url: imageUrl
+                name, price: parseFloat(price), compare_at_price: compareAtPrice ? parseFloat(compareAtPrice) : null,
+                description, category, image_url: imageUrl
             };
 
             if (editingProduct) {
-                const { error: dbError } = await supabase.from('products').update(productData).eq('id', editingProduct.id);
-                if (dbError) throw dbError;
+                const { error } = await supabase.from('products').update(productData).eq('id', editingProduct.id);
+                if (error) throw error;
                 setMessage('¡Producto actualizado con éxito!');
             } else {
-                const { error: dbError } = await supabase.from('products').insert([{ ...productData, in_stock: true, is_active: true }]);
-                if (dbError) throw dbError;
+                const { error } = await supabase.from('products').insert([{ ...productData, in_stock: true, is_active: true }]);
+                if (error) throw error;
                 setMessage('¡Producto publicado con éxito!');
             }
 
@@ -105,8 +120,44 @@ export default function AdminPanel() {
         }
     };
 
+    // --- GUARDAR CONFIGURACIÓN ---
+    const handleSettingsSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        setLoading(true);
+        setMessage('');
+
+        const formData = new FormData(e.currentTarget);
+        const storeName = formData.get('store_name') as string;
+        const themeColor = formData.get('theme_color') as string;
+        const file = formData.get('logo') as File;
+
+        try {
+            let logoUrl = storeSettings?.logo_url || '';
+
+            if (file && file.size > 0) {
+                const fileExt = file.name.split('.').pop();
+                const fileName = `logo-${Date.now()}.${fileExt}`;
+                const { error: uploadError } = await supabase.storage.from('product-images').upload(fileName, file);
+                if (uploadError) throw uploadError;
+                const { data: publicUrlData } = supabase.storage.from('product-images').getPublicUrl(fileName);
+                logoUrl = publicUrlData.publicUrl;
+            }
+
+            const { error } = await supabase.from('store_settings').update({ store_name: storeName, theme_color: themeColor, logo_url: logoUrl }).eq('id', 1);
+            if (error) throw error;
+
+            setMessage('¡Configuración guardada!');
+            fetchSettings();
+        } catch (error: any) {
+            setMessage(`Error: ${error.message}`);
+        } finally {
+            setLoading(false);
+            setTimeout(() => setMessage(''), 3000);
+        }
+    };
+
     const handleDelete = async (id: number, imageUrl: string) => {
-        if (!confirm('¿Seguro que querés eliminar este producto definitivamente?')) return;
+        if (!confirm('¿Seguro que querés eliminar este producto?')) return;
         if (imageUrl) {
             const urlParts = imageUrl.split('/');
             const fileName = urlParts[urlParts.length - 1];
@@ -126,12 +177,6 @@ export default function AdminPanel() {
         if (!error) fetchProducts();
     };
 
-    // Cálculos para el Mini-Dashboard
-    const totalProducts = products.length;
-    const outOfStock = products.filter(p => !p.in_stock).length;
-    const onSale = products.filter(p => p.compare_at_price && p.compare_at_price > p.price).length;
-
-    // Motor de filtrado (Búsqueda + Filtros Rápidos)
     const filteredProducts = products.filter(product => {
         const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || (product.category && product.category.toLowerCase().includes(searchTerm.toLowerCase()));
         const matchesQuickFilter =
@@ -139,157 +184,168 @@ export default function AdminPanel() {
                 quickFilter === 'out_of_stock' ? !product.in_stock :
                     quickFilter === 'on_sale' ? (product.compare_at_price && product.compare_at_price > product.price) :
                         quickFilter === 'hidden' ? !product.is_active : true;
-
         return matchesSearch && matchesQuickFilter;
     });
 
     if (!isAuthed) {
         return (
             <main className="min-h-screen bg-neutral-900 flex items-center justify-center p-6">
-                <form onSubmit={checkPassword} className="bg-white p-8 rounded-2xl shadow-xl max-w-sm w-full">
+                <form onSubmit={handleLogin} className="bg-white p-8 rounded-2xl shadow-xl max-w-sm w-full">
                     <h1 className="text-2xl font-black text-neutral-900 mb-6 text-center">Admin Access</h1>
-                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Contraseña de acceso" className="w-full mb-4 p-3 border border-neutral-200 rounded-xl text-neutral-900 focus:outline-none focus:ring-2 focus:ring-orange-500" required />
-                    <button type="submit" className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl hover:bg-orange-600 transition-colors">Ingresar</button>
+                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Contraseña de acceso" className="w-full mb-4 p-3 border border-neutral-200 rounded-xl text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900" required />
+                    <button type="submit" className="w-full bg-neutral-900 text-white font-bold py-3 rounded-xl hover:bg-neutral-800 transition-colors">Ingresar</button>
                 </form>
             </main>
         );
     }
 
     return (
-        <main className="min-h-screen bg-neutral-50 p-6 sm:p-10">
-            <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <main className="min-h-screen bg-neutral-50 flex flex-col md:flex-row">
 
-                {/* COLUMNA IZQUIERDA: Formulario */}
-                <div className="lg:col-span-4 bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-neutral-100 h-fit sticky top-6">
-                    <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-xl font-black text-neutral-900">
-                            {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
-                        </h2>
-                        {editingProduct && (
-                            <button onClick={() => setEditingProduct(null)} className="text-neutral-400 hover:text-neutral-900 flex items-center gap-1 text-xs font-bold transition-colors">
-                                <X className="w-4 h-4" /> Cancelar
-                            </button>
-                        )}
-                    </div>
-
-                    <form key={editingProduct ? editingProduct.id : 'new'} onSubmit={handleSubmit} className="space-y-4">
-                        <div>
-                            <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Nombre</label>
-                            <input name="name" type="text" defaultValue={editingProduct?.name || ''} required className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none transition-shadow" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-bold text-neutral-500 uppercase mb-1" title="Precio de venta actual">Precio Oferta ($)</label>
-                                <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price || ''} required className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none transition-shadow" />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-neutral-500 uppercase mb-1" title="Aparecerá tachado en la tienda">Precio Lista ($)</label>
-                                <input name="compare_at_price" type="number" step="0.01" defaultValue={editingProduct?.compare_at_price || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none transition-shadow bg-neutral-50" placeholder="Opcional" />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Categoría</label>
-                            <input name="category" type="text" defaultValue={editingProduct?.category || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none transition-shadow" placeholder="Ej: Ropa" />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Descripción</label>
-                            <textarea name="description" rows={3} defaultValue={editingProduct?.description || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none transition-shadow"></textarea>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Imagen {editingProduct && '(Opcional)'}</label>
-                            <input name="image" type="file" accept="image/*" required={!editingProduct} className="w-full p-2 border border-neutral-200 rounded-lg text-neutral-900 text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-neutral-100 file:text-neutral-700 hover:file:bg-neutral-200 transition-colors" />
-                        </div>
-                        <button type="submit" disabled={loading} className="w-full bg-neutral-900 text-white font-bold py-3.5 rounded-lg hover:bg-neutral-800 transition-colors disabled:bg-neutral-400 mt-4 shadow-md">
-                            {loading ? 'Guardando...' : editingProduct ? 'Actualizar Producto' : 'Publicar Producto'}
-                        </button>
-                        {message && <div className={`p-3 rounded-lg text-center text-sm font-bold ${message.includes('Error') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>{message}</div>}
-                    </form>
+            {/* SIDEBAR */}
+            <aside className="w-full md:w-64 bg-white border-r border-neutral-200 flex flex-col md:min-h-screen sticky top-0 z-10">
+                <div className="p-6 border-b border-neutral-200 flex items-center gap-3">
+                    {storeSettings?.logo_url ? (
+                        <img src={storeSettings.logo_url} alt="Logo" className="w-8 h-8 rounded object-cover" />
+                    ) : (
+                        <div className="w-8 h-8 bg-neutral-900 rounded flex items-center justify-center text-white font-bold">A</div>
+                    )}
+                    <h1 className="font-black text-neutral-900 truncate">{storeSettings?.store_name || 'Panel Admin'}</h1>
                 </div>
 
-                {/* COLUMNA DERECHA: Dashboard e Inventario */}
-                <div className="lg:col-span-8 space-y-6">
+                <nav className="flex-grow p-4 space-y-2 flex md:flex-col overflow-x-auto md:overflow-visible">
+                    <button onClick={() => setActiveTab('products')} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-colors whitespace-nowrap w-full ${activeTab === 'products' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
+                        <Package className="w-5 h-5" /> Productos
+                    </button>
+                    <button onClick={() => setActiveTab('categories')} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-colors whitespace-nowrap w-full ${activeTab === 'categories' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
+                        <Tags className="w-5 h-5" /> Categorías
+                    </button>
+                    <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-colors whitespace-nowrap w-full ${activeTab === 'settings' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
+                        <Settings className="w-5 h-5" /> Configuración
+                    </button>
+                </nav>
 
-                    {/* Mini Dashboard */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-neutral-100 flex items-center gap-4">
-                            <div className="p-3 bg-neutral-100 rounded-xl text-neutral-700"><Package className="w-6 h-6" /></div>
-                            <div><p className="text-sm font-bold text-neutral-500">Total Productos</p><p className="text-2xl font-black text-neutral-900">{totalProducts}</p></div>
-                        </div>
-                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-neutral-100 flex items-center gap-4">
-                            <div className="p-3 bg-red-50 rounded-xl text-red-500"><AlertCircle className="w-6 h-6" /></div>
-                            <div><p className="text-sm font-bold text-neutral-500">Sin Stock</p><p className="text-2xl font-black text-neutral-900">{outOfStock}</p></div>
-                        </div>
-                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-neutral-100 flex items-center gap-4">
-                            <div className="p-3 bg-green-50 rounded-xl text-green-500"><Percent className="w-6 h-6" /></div>
-                            <div><p className="text-sm font-bold text-neutral-500">En Oferta</p><p className="text-2xl font-black text-neutral-900">{onSale}</p></div>
-                        </div>
-                    </div>
+                <div className="p-4 border-t border-neutral-200">
+                    <button onClick={handleLogout} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-red-50 text-red-600 rounded-xl font-bold text-sm hover:bg-red-100 transition-colors">
+                        <LogOut className="w-4 h-4" /> Cerrar Sesión
+                    </button>
+                </div>
+            </aside>
 
-                    {/* Gestor de Inventario */}
-                    <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-neutral-100">
-                        <div className="flex flex-col mb-6 gap-4">
-                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                                <h2 className="text-xl font-black text-neutral-900">Inventario</h2>
-                                <div className="relative w-full sm:w-64">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-4 w-4" />
-                                    <input
-                                        type="text"
-                                        placeholder="Buscar producto..."
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="w-full pl-9 pr-3 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                                    />
+            {/* CONTENIDO PRINCIPAL */}
+            <div className="flex-grow p-6 sm:p-10 w-full overflow-hidden">
+
+                {/* ---------------- PESTAÑA: PRODUCTOS ---------------- */}
+                {activeTab === 'products' && (
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 max-w-7xl mx-auto">
+                        <div className="xl:col-span-4 bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-neutral-100 h-fit sticky top-6">
+                            <div className="flex items-center justify-between mb-6">
+                                <h2 className="text-xl font-black text-neutral-900">{editingProduct ? 'Editar Producto' : 'Nuevo Producto'}</h2>
+                                {editingProduct && <button onClick={() => setEditingProduct(null)} className="text-neutral-400 hover:text-neutral-900 flex items-center gap-1 text-xs font-bold transition-colors"><X className="w-4 h-4" /> Cancelar</button>}
+                            </div>
+
+                            <form key={editingProduct ? editingProduct.id : 'new'} onSubmit={handleProductSubmit} className="space-y-4">
+                                <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Nombre</label><input name="name" type="text" defaultValue={editingProduct?.name || ''} required className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 outline-none" /></div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Precio Oferta ($)</label><input name="price" type="number" step="0.01" defaultValue={editingProduct?.price || ''} required className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 outline-none" /></div>
+                                    <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Precio Lista ($)</label><input name="compare_at_price" type="number" step="0.01" defaultValue={editingProduct?.compare_at_price || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 bg-neutral-50 outline-none" placeholder="Opcional" /></div>
                                 </div>
-                            </div>
-
-                            {/* Filtros Rápidos (Pills) */}
-                            <div className="flex gap-2 overflow-x-auto scroller-hidden pb-1">
-                                <button onClick={() => setQuickFilter('all')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${quickFilter === 'all' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}>Todos</button>
-                                <button onClick={() => setQuickFilter('on_sale')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${quickFilter === 'on_sale' ? 'bg-green-500 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}>Ofertas</button>
-                                <button onClick={() => setQuickFilter('out_of_stock')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${quickFilter === 'out_of_stock' ? 'bg-red-500 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}>Agotados</button>
-                                <button onClick={() => setQuickFilter('hidden')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${quickFilter === 'hidden' ? 'bg-orange-500 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}>Ocultos</button>
-                            </div>
+                                <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Categoría</label><input name="category" type="text" defaultValue={editingProduct?.category || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 outline-none" placeholder="Ej: Ropa" /></div>
+                                <div><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Descripción</label><textarea name="description" rows={3} defaultValue={editingProduct?.description || ''} className="w-full p-2.5 border border-neutral-200 rounded-lg text-neutral-900 outline-none"></textarea></div>
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Imagen (Opcional)</label>
+                                    <input name="image" type="file" accept="image/*" className="w-full p-2 border border-neutral-200 rounded-lg text-neutral-900 text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-neutral-100 file:text-neutral-700 hover:file:bg-neutral-200" />
+                                </div>
+                                <button type="submit" disabled={loading} className="w-full bg-neutral-900 text-white font-bold py-3.5 rounded-lg hover:bg-neutral-800 disabled:bg-neutral-400 mt-4 shadow-md">
+                                    {loading ? 'Guardando...' : editingProduct ? 'Actualizar Producto' : 'Publicar Producto'}
+                                </button>
+                                {message && <div className={`p-3 rounded-lg text-center text-sm font-bold ${message.includes('Error') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>{message}</div>}
+                            </form>
                         </div>
 
-                        <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 scroller-hidden">
-                            {filteredProducts.length === 0 ? (
-                                <p className="text-center text-neutral-500 py-10 text-sm font-medium">No se encontraron productos.</p>
-                            ) : filteredProducts.map(product => (
-                                <div key={product.id} className={`flex items-center justify-between p-3 border rounded-xl transition-all hover:shadow-sm ${!product.is_active ? 'opacity-50 border-dashed bg-neutral-50' : product.in_stock ? 'border-neutral-200 bg-white' : 'border-red-100 bg-red-50/50 grayscale-[0.2]'}`}>
-                                    <div className="flex items-center gap-4 overflow-hidden">
-                                        {product.image_url && <img src={product.image_url} alt={product.name} className="w-14 h-14 object-cover rounded-lg bg-neutral-100 flex-shrink-0" />}
-                                        <div className="min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <p className="font-bold text-neutral-900 text-sm truncate">{product.name}</p>
-                                                {!product.is_active && <span className="bg-neutral-200 text-neutral-600 text-[10px] uppercase font-black px-1.5 py-0.5 rounded">Oculto</span>}
-                                            </div>
-                                            <div className="flex items-center gap-2 mt-0.5">
-                                                <p className="text-neutral-500 text-xs font-bold">${product.price.toLocaleString('es-AR')}</p>
-                                                {product.compare_at_price && product.compare_at_price > product.price && (
-                                                    <p className="text-neutral-400 text-[10px] line-through">${product.compare_at_price.toLocaleString('es-AR')}</p>
-                                                )}
-                                            </div>
+                        <div className="xl:col-span-8 space-y-6">
+                            <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-neutral-100">
+                                <div className="flex flex-col mb-6 gap-4">
+                                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                                        <h2 className="text-xl font-black text-neutral-900">Inventario</h2>
+                                        <div className="relative w-full sm:w-64">
+                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-4 w-4" />
+                                            <input type="text" placeholder="Buscar producto..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 border border-neutral-200 rounded-lg text-sm text-neutral-900 outline-none" />
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                                        <button onClick={() => toggleVisibility(product.id, product.is_active)} className={`p-2 transition-colors rounded-lg ${product.is_active ? 'text-neutral-400 hover:text-orange-500 bg-white hover:bg-orange-50' : 'text-orange-500 bg-orange-50'}`} title={product.is_active ? "Ocultar en la tienda" : "Mostrar en la tienda"}>
-                                            {product.is_active ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                                        </button>
-                                        <button onClick={() => toggleStock(product.id, product.in_stock)} className={`px-3 py-2 rounded-lg text-xs font-bold transition-colors ${product.in_stock ? 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}>
-                                            {product.in_stock ? 'Pausar' : 'Agotado'}
-                                        </button>
-                                        <button onClick={() => setEditingProduct(product)} className="p-2 text-neutral-400 hover:text-orange-500 transition-colors bg-white hover:bg-orange-50 rounded-lg" title="Editar">
-                                            <Edit2 className="w-4 h-4" />
-                                        </button>
-                                        <button onClick={() => handleDelete(product.id, product.image_url)} className="p-2 text-neutral-400 hover:text-red-500 transition-colors bg-white hover:bg-red-50 rounded-lg" title="Eliminar">
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                    <div className="flex gap-2 overflow-x-auto scroller-hidden pb-1">
+                                        <button onClick={() => setQuickFilter('all')} className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${quickFilter === 'all' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}>Todos</button>
+                                        <button onClick={() => setQuickFilter('on_sale')} className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${quickFilter === 'on_sale' ? 'bg-green-500 text-white' : 'bg-neutral-100 text-neutral-600'}`}>Ofertas</button>
+                                        <button onClick={() => setQuickFilter('out_of_stock')} className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${quickFilter === 'out_of_stock' ? 'bg-red-500 text-white' : 'bg-neutral-100 text-neutral-600'}`}>Agotados</button>
+                                        <button onClick={() => setQuickFilter('hidden')} className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap ${quickFilter === 'hidden' ? 'bg-orange-500 text-white' : 'bg-neutral-100 text-neutral-600'}`}>Ocultos</button>
                                     </div>
                                 </div>
-                            ))}
+
+                                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 scroller-hidden">
+                                    {filteredProducts.map(product => (
+                                        <div key={product.id} className={`flex items-center justify-between p-3 border rounded-xl transition-all hover:shadow-sm ${!product.is_active ? 'opacity-50 border-dashed bg-neutral-50' : product.in_stock ? 'border-neutral-200 bg-white' : 'border-red-100 bg-red-50/50 grayscale-[0.2]'}`}>
+                                            <div className="flex items-center gap-4 overflow-hidden">
+                                                {product.image_url ? <img src={product.image_url} className="w-12 h-12 object-cover rounded-lg bg-neutral-100 flex-shrink-0" /> : <div className="w-12 h-12 bg-neutral-100 rounded-lg flex items-center justify-center text-neutral-300"><ImageIcon className="w-5 h-5" /></div>}
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-2"><p className="font-bold text-neutral-900 text-sm truncate">{product.name}</p></div>
+                                                    <div className="flex items-center gap-2 mt-0.5"><p className="text-neutral-500 text-xs font-bold">${product.price.toLocaleString('es-AR')}</p></div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                                                <button onClick={() => toggleVisibility(product.id, product.is_active)} className="p-2 text-neutral-400 hover:text-orange-500 bg-white rounded-lg"><Eye className="w-4 h-4" /></button>
+                                                <button onClick={() => toggleStock(product.id, product.in_stock)} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-neutral-100 text-neutral-600">Stock</button>
+                                                <button onClick={() => setEditingProduct(product)} className="p-2 text-neutral-400 hover:text-orange-500 bg-white rounded-lg"><Edit2 className="w-4 h-4" /></button>
+                                                <button onClick={() => handleDelete(product.id, product.image_url)} className="p-2 text-neutral-400 hover:text-red-500 bg-white rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
+
+                {/* ---------------- PESTAÑA: CATEGORÍAS ---------------- */}
+                {activeTab === 'categories' && (
+                    <div className="max-w-3xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-neutral-100 text-center py-20">
+                        <Tags className="w-16 h-16 text-neutral-200 mx-auto mb-4" />
+                        <h2 className="text-2xl font-black text-neutral-900 mb-2">Sistema de Categorías</h2>
+                        <p className="text-neutral-500">Próximamente podrás crear subcategorías y organizarlas jerárquicamente.</p>
+                    </div>
+                )}
+
+                {/* ---------------- PESTAÑA: CONFIGURACIÓN ---------------- */}
+                {activeTab === 'settings' && (
+                    <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-neutral-100">
+                        <h2 className="text-2xl font-black text-neutral-900 mb-8">Personalizar Tienda</h2>
+                        <form onSubmit={handleSettingsSubmit} className="space-y-6">
+                            <div>
+                                <label className="block text-sm font-bold text-neutral-700 mb-2">Nombre de la Tienda</label>
+                                <input name="store_name" type="text" defaultValue={storeSettings?.store_name} required className="w-full p-3 border border-neutral-200 rounded-lg text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-neutral-700 mb-2">Color Principal (Tema)</label>
+                                <div className="flex items-center gap-4">
+                                    <input name="theme_color" type="color" defaultValue={storeSettings?.theme_color || '#f97316'} className="w-14 h-14 rounded cursor-pointer border-0 p-0" />
+                                    <span className="text-sm text-neutral-500">Se aplicará a los botones y elementos destacados.</span>
+                                </div>
+                            </div>
+                            <div className="pt-4 border-t border-neutral-100">
+                                <label className="block text-sm font-bold text-neutral-700 mb-2">Logo de la Marca</label>
+                                {storeSettings?.logo_url && (
+                                    <div className="mb-4 relative inline-block">
+                                        <img src={storeSettings.logo_url} alt="Logo actual" className="h-20 w-auto rounded-lg border border-neutral-200 p-2 bg-neutral-50" />
+                                    </div>
+                                )}
+                                <input name="logo" type="file" accept="image/*" className="w-full p-2 border border-neutral-200 rounded-lg text-neutral-900 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-neutral-100 file:text-neutral-700 hover:file:bg-neutral-200" />
+                            </div>
+                            <button type="submit" disabled={loading} className="w-full bg-neutral-900 text-white font-bold py-4 rounded-lg hover:bg-neutral-800 transition-colors mt-4">
+                                {loading ? 'Guardando...' : 'Guardar Configuración'}
+                            </button>
+                            {message && <div className={`p-4 rounded-lg text-center text-sm font-bold ${message.includes('Error') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>{message}</div>}
+                        </form>
+                    </div>
+                )}
 
             </div>
             <style jsx global>{`.scroller-hidden::-webkit-scrollbar { display: none; } .scroller-hidden { -ms-overflow-style: none; scrollbar-width: none; }`}</style>
