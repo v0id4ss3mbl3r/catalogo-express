@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Search, ShoppingCart, Trash2, X, CheckCircle2 } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, X, CheckCircle2, SlidersHorizontal } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -19,17 +19,19 @@ export default function CatalogoEmpretiendaStyle() {
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Filtros Avanzados
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'newest' | 'price_asc' | 'price_desc'>('newest');
 
   const [cart, setCart] = useState<{ [key: string]: any }>({});
   const [isCartOpen, setIsCartOpen] = useState(false);
 
-  // ESTADO FALTANTE CORREGIDO: Para manejar el modal de detalles
+  // Para manejar el modal de detalles
   const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
 
-  // Estados para el flujo de Checkout y UI
-  const [checkoutStep, setCheckoutStep] = useState<'cart' | 'form' | 'success'>('cart');
+  // Estados para el flujo de Checkout y UI (agregamos 'processing')
+  const [checkoutStep, setCheckoutStep] = useState<'cart' | 'form' | 'processing' | 'success'>('cart');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Datos del cliente
@@ -53,7 +55,7 @@ export default function CatalogoEmpretiendaStyle() {
   const fetchInitialData = async () => {
     try {
       setLoading(true);
-      const { data: prods } = await supabase.from('products').select('*').order('created_at', { ascending: false });
+      const { data: prods } = await supabase.from('products').select('*');
       if (prods) setProducts(prods);
 
       const { data: cats } = await supabase.from('products').select('category').not('category', 'is', null).not('category', 'eq', '');
@@ -106,35 +108,43 @@ export default function CatalogoEmpretiendaStyle() {
   const cartItemsCount = Object.values(cart).reduce((sum, item) => sum + item.quantity, 0);
   const cartTotal = Object.values(cart).reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-  const handleCheckoutSubmit = (e: React.FormEvent) => {
+  // ENVÍO SILENCIOSO A NUESTRA API
+  const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCheckoutStep('processing'); // Mostramos pantalla de carga
 
-    // Generar el mensaje
-    let mensaje = `*NUEVO PEDIDO*\n\n`;
-    mensaje += `*Datos del Cliente:*\n`;
-    mensaje += `- Nombre: ${customerData.name}\n`;
-    mensaje += `- Teléfono: ${customerData.phone}\n`;
-    if (customerData.notes) mensaje += `- Observaciones: ${customerData.notes}\n`;
+    try {
+      const response = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerData,
+          cart: Object.values(cart),
+          cartTotal
+        })
+      });
 
-    mensaje += `\n*Detalle del Pedido:*\n`;
-    Object.values(cart).forEach((item, index) => {
-      mensaje += `${index + 1}. *${item.name}* x ${item.quantity} - $${(item.price * item.quantity).toLocaleString('es-AR')}\n`;
-    });
-    mensaje += `\n*TOTAL: $${cartTotal.toLocaleString('es-AR')}*`;
+      if (!response.ok) throw new Error('Error de red');
 
-    // Abrir WhatsApp
-    const url = `https://wa.me/${customerData.selectedSeller}?text=${encodeURIComponent(mensaje)}`;
-    window.open(url, '_blank');
-
-    // Limpiar carrito y mostrar éxito
-    setCart({});
-    setCheckoutStep('success');
+      // Limpiar carrito y mostrar éxito
+      setCart({});
+      setCheckoutStep('success');
+    } catch (error) {
+      console.error(error);
+      alert("Hubo un error al enviar el pedido. Revisá tu conexión e intentá de nuevo.");
+      setCheckoutStep('form');
+    }
   };
 
+  // Motor de Búsqueda y Ordenamiento
   const filteredProducts = products.filter(product => {
     const matchesSearch = searchQuery === '' || product.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = activeCategory === null || product.category === activeCategory;
     return matchesSearch && matchesCategory;
+  }).sort((a, b) => {
+    if (sortBy === 'price_asc') return a.price - b.price;
+    if (sortBy === 'price_desc') return b.price - a.price;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime(); // newest por defecto
   });
 
   return (
@@ -177,27 +187,43 @@ export default function CatalogoEmpretiendaStyle() {
         </div>
       </header>
 
-      {categories.length > 0 && (
-        <nav className="bg-white border-b border-neutral-100 sticky top-16 sm:top-20 z-30 shadow-xs">
-          <div className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-2 overflow-x-auto scroller-hidden">
-            <button
-              onClick={() => setActiveCategory(null)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 ${activeCategory === null ? 'bg-orange-500 text-white shadow-md' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200 hover:shadow-sm'}`}
-            >
-              Todos
-            </button>
-            {categories.map(cat => (
+      {/* NAV CON CATEGORÍAS Y FILTROS */}
+      <nav className="bg-white border-b border-neutral-100 sticky top-16 sm:top-20 z-30 shadow-xs">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          {categories.length > 0 && (
+            <div className="flex items-center gap-2 overflow-x-auto scroller-hidden">
               <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 ${activeCategory === cat ? 'bg-orange-500 text-white shadow-md' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200 hover:shadow-sm'}`}
+                onClick={() => setActiveCategory(null)}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 ${activeCategory === null ? 'bg-orange-500 text-white shadow-md' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200 hover:shadow-sm'}`}
               >
-                {cat}
+                Todos
               </button>
-            ))}
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 ${activeCategory === cat ? 'bg-orange-500 text-white shadow-md' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200 hover:shadow-sm'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+            <SlidersHorizontal className="h-4 w-4 text-neutral-400" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="bg-transparent text-sm font-medium text-neutral-700 outline-none cursor-pointer hover:text-neutral-900 transition-colors"
+            >
+              <option value="newest">Más Recientes</option>
+              <option value="price_asc">Menor Precio</option>
+              <option value="price_desc">Mayor Precio</option>
+            </select>
           </div>
-        </nav>
-      )}
+        </div>
+      </nav>
 
       <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-6 mt-10">
         {loading ? (
@@ -292,7 +318,7 @@ export default function CatalogoEmpretiendaStyle() {
 
           <div className="p-5 border-b border-neutral-200 flex items-center justify-between bg-neutral-50">
             <h3 className="text-lg font-black text-neutral-900 uppercase tracking-tight">
-              {checkoutStep === 'cart' ? 'Tu Pedido' : checkoutStep === 'form' ? 'Datos de Envío' : '¡Listo!'}
+              {checkoutStep === 'cart' ? 'Tu Pedido' : checkoutStep === 'form' ? 'Datos de Envío' : checkoutStep === 'processing' ? 'Procesando...' : '¡Listo!'}
             </h3>
             <button onClick={() => setIsCartOpen(false)} className="text-neutral-400 hover:text-neutral-900 transition-colors">
               <X className="h-6 w-6" />
@@ -334,8 +360,8 @@ export default function CatalogoEmpretiendaStyle() {
                   <input type="text" required value={customerData.name} onChange={e => setCustomerData({ ...customerData, name: e.target.value })} className="w-full p-3 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Ej: Juan Pérez" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-neutral-600 uppercase mb-1.5">Tu Teléfono</label>
-                  <input type="tel" required value={customerData.phone} onChange={e => setCustomerData({ ...customerData, phone: e.target.value })} className="w-full p-3 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Ej: 223..." />
+                  <label className="block text-xs font-bold text-neutral-600 uppercase mb-1.5">Tu Teléfono (Para enviarte resumen)</label>
+                  <input type="tel" required value={customerData.phone} onChange={e => setCustomerData({ ...customerData, phone: e.target.value })} className="w-full p-3 border border-neutral-200 rounded-lg text-neutral-900 focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Ej: 549223..." />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-neutral-600 uppercase mb-1.5">Enviar pedido a:</label>
@@ -352,12 +378,23 @@ export default function CatalogoEmpretiendaStyle() {
               </form>
             )}
 
-            {/* PASO 3: ÉXITO */}
+            {/* PASO 3: PROCESANDO */}
+            {checkoutStep === 'processing' && (
+              <div className="p-8 flex flex-col items-center justify-center h-full text-center space-y-6">
+                <div className="w-14 h-14 border-4 border-neutral-200 border-t-orange-500 rounded-full animate-spin"></div>
+                <div>
+                  <h3 className="text-xl font-black text-neutral-900">Procesando Envío...</h3>
+                  <p className="text-neutral-500 mt-2 text-sm">Enviando mensajes de WhatsApp al vendedor y al cliente.</p>
+                </div>
+              </div>
+            )}
+
+            {/* PASO 4: ÉXITO */}
             {checkoutStep === 'success' && (
               <div className="p-8 flex flex-col items-center justify-center h-full text-center space-y-4">
                 <CheckCircle2 className="h-20 w-20 text-green-500" />
-                <h3 className="text-2xl font-black text-neutral-900">¡Pedido Enviado!</h3>
-                <p className="text-neutral-500">Te redirigimos a WhatsApp para confirmar la compra. Si no se abrió automáticamente, revisá tus pestañas.</p>
+                <h3 className="text-2xl font-black text-neutral-900">¡Pedido Confirmado!</h3>
+                <p className="text-neutral-500">El detalle del pedido fue enviado silenciosamente a los WhatsApp correspondientes.</p>
                 <button onClick={() => { setIsCartOpen(false); setCheckoutStep('cart'); }} className="mt-6 font-bold text-orange-500 hover:text-orange-600">
                   Volver a la tienda
                 </button>
@@ -365,8 +402,8 @@ export default function CatalogoEmpretiendaStyle() {
             )}
           </div>
 
-          {/* FOOTER DEL CARRITO (Botones de acción) */}
-          {checkoutStep !== 'success' && cartItemsCount > 0 && (
+          {/* FOOTER DEL CARRITO */}
+          {checkoutStep !== 'success' && checkoutStep !== 'processing' && cartItemsCount > 0 && (
             <div className="p-5 border-t border-neutral-200 bg-neutral-50">
               <div className="flex items-center justify-between mb-4">
                 <span className="text-neutral-500 font-medium">Total a pagar:</span>
@@ -384,7 +421,7 @@ export default function CatalogoEmpretiendaStyle() {
                 <div className="flex gap-3">
                   <button onClick={() => setCheckoutStep('cart')} className="px-4 py-4 font-bold text-neutral-500 hover:text-neutral-900 transition-colors">Atrás</button>
                   <button type="submit" form="checkout-form" className="flex-grow bg-green-500 text-white font-black py-4 rounded-xl hover:bg-green-600 transition-transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-500/30">
-                    Enviar por WhatsApp
+                    Confirmar Pedido
                   </button>
                 </div>
               )}
