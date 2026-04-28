@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Search, ShoppingCart, Trash2, X, CheckCircle2, ChevronDown, Truck, CreditCard, ShieldCheck, Instagram, Facebook } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, X, CheckCircle2, ChevronDown, Truck, CreditCard, ShieldCheck } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -177,11 +177,10 @@ export default function CatalogoEmpretiendaStyle() {
       </header>
 
       <div className="flex-grow">
-        {/* HERO BANNER (Se oculta si se está buscando algo o filtrando por categoría) */}
+        {/* HERO BANNER */}
         {!searchQuery && activeCategory === null && (
           <>
             <section className="relative bg-neutral-900 text-white overflow-hidden">
-              {/* Overlay sutil usando el color principal */}
               <div className="absolute inset-0 opacity-20" style={{ backgroundColor: themeColor }}></div>
               <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-16 sm:py-24 text-center sm:text-left flex flex-col sm:flex-row items-center justify-between gap-10">
                 <div className="max-w-2xl">
@@ -194,7 +193,6 @@ export default function CatalogoEmpretiendaStyle() {
                     Ver Catálogo <ChevronDown className="w-5 h-5" />
                   </button>
                 </div>
-                {/* Elemento decorativo visual */}
                 <div className="hidden sm:flex w-72 h-72 rounded-full border-8 border-white/10 items-center justify-center relative shadow-2xl">
                   <div className="absolute w-56 h-56 rounded-full blur-2xl opacity-50" style={{ backgroundColor: themeColor }}></div>
                   <ShoppingCart className="w-32 h-32 text-white relative z-10 opacity-90" />
@@ -225,7 +223,7 @@ export default function CatalogoEmpretiendaStyle() {
           </>
         )}
 
-        {/* BARRA DE CONTROL (Filtros y Ordenamiento) */}
+        {/* BARRA DE CONTROL */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 pb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
             <h2 className="text-3xl font-black tracking-tight text-neutral-900">
@@ -308,7 +306,7 @@ export default function CatalogoEmpretiendaStyle() {
         </div>
       </div>
 
-      {/* FOOTER PROFESIONAL */}
+      {/* FOOTER */}
       <footer className="bg-white border-t border-neutral-200 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="col-span-1 md:col-span-2">
@@ -321,8 +319,12 @@ export default function CatalogoEmpretiendaStyle() {
               La mejor plataforma de compras ágiles. Seleccioná lo que buscás y completá tu pedido directamente de forma segura.
             </p>
             <div className="flex gap-4 mt-6">
-              <a href="#" className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-600 hover:bg-neutral-200 transition-colors"><Instagram className="w-5 h-5" /></a>
-              <a href="#" className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-600 hover:bg-neutral-200 transition-colors"><Facebook className="w-5 h-5" /></a>
+              <a href="#" className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-600 hover:bg-neutral-200 transition-colors">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5"><rect width="20" height="20" x="2" y="2" rx="5" ry="5" /><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" /><line x1="17.5" x2="17.51" y1="6.5" y2="6.5" /></svg>
+              </a>
+              <a href="#" className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-600 hover:bg-neutral-200 transition-colors">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" /></svg>
+              </a>
             </div>
           </div>
 
@@ -358,7 +360,7 @@ export default function CatalogoEmpretiendaStyle() {
         </div>
       </footer>
 
-      {/* MODAL DETALLE DE PRODUCTO */}
+      {/* MODAL DETALLE PRODUCTO */}
       {selectedProduct && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 opacity-100 transition-opacity">
           <div className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" onClick={() => setSelectedProduct(null)}></div>
@@ -405,7 +407,7 @@ export default function CatalogoEmpretiendaStyle() {
         </div>
       )}
 
-      {/* CARRITO / CHECKOUT MODAL */}
+      {/* CARRITO MODAL */}
       <div className={`fixed inset-0 z-[70] transition-opacity duration-300 ${isCartOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
         <div className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm" onClick={() => setIsCartOpen(false)}></div>
 
