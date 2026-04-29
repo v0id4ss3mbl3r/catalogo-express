@@ -21,10 +21,14 @@ export default function ProductsTab() {
     const [quickFilter, setQuickFilter] = useState<'all' | 'out_of_stock' | 'on_sale' | 'hidden'>('all');
     const [isCreatingCategoryInline, setIsCreatingCategoryInline] = useState(false);
 
+    // Estados para el cálculo de margen en tiempo real
+    const [formPrice, setFormPrice] = useState<string>('');
+    const [formCost, setFormCost] = useState<string>('');
+
     useEffect(() => {
         fetchProducts();
         fetchCategories();
-    }, [view]); // Recarga al cambiar de vista
+    }, [view]);
 
     const fetchProducts = async () => {
         const { data } = await supabase.from('products').select('*').order('created_at', { ascending: false });
@@ -50,12 +54,16 @@ export default function ProductsTab() {
     const handleCreateNew = () => {
         setEditingProduct(null);
         setIsCreatingCategoryInline(false);
+        setFormPrice('');
+        setFormCost('');
         setView('form');
     };
 
     const handleEdit = (product: any) => {
         setEditingProduct(product);
         setIsCreatingCategoryInline(false);
+        setFormPrice(product.price ? product.price.toString() : '');
+        setFormCost(product.cost ? product.cost.toString() : '');
         setView('form');
     };
 
@@ -74,10 +82,14 @@ export default function ProductsTab() {
         const formData = new FormData(form);
 
         const name = formData.get('name') as string;
-        const price = formData.get('price') as string;
         const compareAtPrice = formData.get('compare_at_price') as string;
         const description = formData.get('description') as string;
         const file = formData.get('image') as File;
+
+        // Nuevos campos
+        const sku = formData.get('sku') as string;
+        const stock_quantity = formData.get('stock_quantity') as string;
+        const youtube_url = formData.get('youtube_url') as string;
 
         try {
             let finalCategoryId = formData.get('category_id') ? parseInt(formData.get('category_id') as string) : null;
@@ -116,21 +128,34 @@ export default function ProductsTab() {
                 imageUrl = publicUrlData.publicUrl;
             }
 
+            // Parseo de cantidades
+            const parsedStock = stock_quantity ? parseInt(stock_quantity) : 0;
+
             const productData = {
-                name, price: parseFloat(price), compare_at_price: compareAtPrice ? parseFloat(compareAtPrice) : null,
-                description, image_url: imageUrl, category_id: finalCategoryId, category: finalCategoryText
+                name,
+                price: parseFloat(formPrice),
+                compare_at_price: compareAtPrice ? parseFloat(compareAtPrice) : null,
+                cost: formCost ? parseFloat(formCost) : null,
+                sku,
+                stock_quantity: parsedStock,
+                in_stock: parsedStock > 0, // Automatizamos el boolean en base a la cantidad
+                youtube_url,
+                description,
+                image_url: imageUrl,
+                category_id: finalCategoryId,
+                category: finalCategoryText
             };
 
             if (editingProduct) {
                 const { error } = await supabase.from('products').update(productData).eq('id', editingProduct.id);
                 if (error) throw error;
             } else {
-                const { error } = await supabase.from('products').insert([{ ...productData, in_stock: true, is_active: true }]);
+                const { error } = await supabase.from('products').insert([{ ...productData, is_active: true }]);
                 if (error) throw error;
             }
 
             form.reset();
-            handleCancelForm(); // Vuelve a la lista tras guardar
+            handleCancelForm();
         } catch (error: any) {
             setMessage(`Error al guardar: ${error.message}`);
             setLoading(false);
@@ -149,14 +174,19 @@ export default function ProductsTab() {
         if (!error) fetchProducts();
     };
 
-    const toggleStock = async (id: number, currentStock: boolean) => {
-        const { error } = await supabase.from('products').update({ in_stock: !currentStock }).eq('id', id);
-        if (!error) fetchProducts();
-    };
-
     const toggleVisibility = async (id: number, currentVisibility: boolean) => {
         const { error } = await supabase.from('products').update({ is_active: !currentVisibility }).eq('id', id);
         if (!error) fetchProducts();
+    };
+
+    // Cálculo dinámico del margen para mostrar en la UI
+    const calculateMargin = () => {
+        const p = parseFloat(formPrice);
+        const c = parseFloat(formCost);
+        if (!isNaN(p) && !isNaN(c) && c > 0 && p > c) {
+            return (((p - c) / c) * 100).toFixed(1);
+        }
+        return '0.0';
     };
 
     const filteredProducts = products.filter(product => {
@@ -169,60 +199,38 @@ export default function ProductsTab() {
         return matchesSearch && matchesQuickFilter;
     });
 
-    // --------------------------------------------------------------------------------
-    // VISTA DE LISTADO DE PRODUCTOS (DEFAULT)
-    // --------------------------------------------------------------------------------
     if (view === 'list') {
         return (
             <div className="max-w-6xl mx-auto space-y-6">
-
-                {/* Header Superior: Título y Botón Crear */}
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-neutral-100">
                     <div>
                         <h2 className="text-2xl font-black text-neutral-900">Productos</h2>
                         <p className="text-neutral-500 font-medium mt-1">Gestioná el catálogo de tu tienda.</p>
                     </div>
-                    <button
-                        onClick={handleCreateNew}
-                        className="w-full sm:w-auto bg-neutral-900 text-white font-bold py-3 px-6 rounded-xl hover:bg-neutral-800 transition-colors shadow-md flex items-center justify-center gap-2"
-                    >
+                    <button onClick={handleCreateNew} className="w-full sm:w-auto bg-neutral-900 text-white font-bold py-3 px-6 rounded-xl hover:bg-neutral-800 transition-colors shadow-md flex items-center justify-center gap-2">
                         <Plus className="w-5 h-5" /> Crear producto
                     </button>
                 </div>
 
-                {/* Filtros e Inventario */}
                 <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-neutral-100">
                     <div className="flex flex-col mb-6 gap-4 border-b border-neutral-100 pb-6">
-                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                            {/* Buscador */}
-                            <div className="relative w-full sm:w-96">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-5 w-5" />
-                                <input
-                                    type="text"
-                                    placeholder="Buscar producto por nombre o categoría..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm text-neutral-900 outline-none focus:bg-white focus:ring-2 focus:ring-neutral-900 transition-all"
-                                />
-                            </div>
+                        <div className="relative w-full sm:w-96">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-5 w-5" />
+                            <input type="text" placeholder="Buscar producto por nombre o categoría..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-sm text-neutral-900 outline-none focus:bg-white focus:ring-2 focus:ring-neutral-900 transition-all" />
                         </div>
-
-                        {/* Botones de Filtrado (Pills) */}
                         <div className="flex gap-2 overflow-x-auto scroller-hidden pt-2">
-                            <button onClick={() => setQuickFilter('all')} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${quickFilter === 'all' ? 'bg-neutral-900 text-white shadow-sm' : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100 border border-neutral-200'}`}>Todos</button>
-                            <button onClick={() => setQuickFilter('on_sale')} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${quickFilter === 'on_sale' ? 'bg-green-500 text-white shadow-sm' : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100 border border-neutral-200'}`}>Ofertas</button>
-                            <button onClick={() => setQuickFilter('out_of_stock')} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${quickFilter === 'out_of_stock' ? 'bg-red-500 text-white shadow-sm' : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100 border border-neutral-200'}`}>Agotados</button>
-                            <button onClick={() => setQuickFilter('hidden')} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${quickFilter === 'hidden' ? 'bg-orange-500 text-white shadow-sm' : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100 border border-neutral-200'}`}>Ocultos</button>
+                            <button onClick={() => setQuickFilter('all')} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${quickFilter === 'all' ? 'bg-neutral-900 text-white' : 'bg-neutral-50 text-neutral-600 border border-neutral-200'}`}>Todos</button>
+                            <button onClick={() => setQuickFilter('on_sale')} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${quickFilter === 'on_sale' ? 'bg-green-500 text-white' : 'bg-neutral-50 text-neutral-600 border border-neutral-200'}`}>Ofertas</button>
+                            <button onClick={() => setQuickFilter('out_of_stock')} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${quickFilter === 'out_of_stock' ? 'bg-red-500 text-white' : 'bg-neutral-50 text-neutral-600 border border-neutral-200'}`}>Agotados</button>
+                            <button onClick={() => setQuickFilter('hidden')} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${quickFilter === 'hidden' ? 'bg-orange-500 text-white' : 'bg-neutral-50 text-neutral-600 border border-neutral-200'}`}>Ocultos</button>
                         </div>
                     </div>
 
-                    {/* Tabla/Lista de Productos */}
                     <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 scroller-hidden">
                         {filteredProducts.length === 0 ? (
                             <div className="text-center py-12">
                                 <Package className="w-12 h-12 text-neutral-200 mx-auto mb-3" />
                                 <h3 className="text-lg font-bold text-neutral-900">No hay productos.</h3>
-                                <p className="text-neutral-500 text-sm mt-1">Hacé clic en "Crear producto" para empezar.</p>
                             </div>
                         ) : filteredProducts.map(product => (
                             <div key={product.id} className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-2xl transition-all hover:shadow-md ${!product.is_active ? 'opacity-50 border-dashed bg-neutral-50' : product.in_stock ? 'border-neutral-200 bg-white' : 'border-red-100 bg-red-50/50 grayscale-[0.2]'}`}>
@@ -235,8 +243,10 @@ export default function ProductsTab() {
                                         </div>
                                         <div className="flex items-center gap-3 mt-1">
                                             <p className="text-neutral-900 font-black">${product.price.toLocaleString('es-AR')}</p>
-                                            {product.compare_at_price && product.compare_at_price > product.price && (
-                                                <p className="text-neutral-400 text-xs line-through font-bold">${product.compare_at_price.toLocaleString('es-AR')}</p>
+                                            {product.stock_quantity > 0 ? (
+                                                <span className="text-green-600 text-xs font-bold">{product.stock_quantity} un.</span>
+                                            ) : (
+                                                <span className="text-red-500 text-xs font-bold">Sin Stock</span>
                                             )}
                                             {product.category && <span className="text-neutral-500 text-xs bg-neutral-100 px-2 py-1 rounded-md font-medium border border-neutral-200">{product.category}</span>}
                                         </div>
@@ -245,9 +255,6 @@ export default function ProductsTab() {
 
                                 <div className="flex items-center gap-2 sm:flex-shrink-0">
                                     <button onClick={() => toggleVisibility(product.id, product.is_active)} className="p-2 text-neutral-400 hover:text-neutral-900 bg-white border border-neutral-200 rounded-lg transition-colors" title={product.is_active ? "Ocultar" : "Mostrar"}><Eye className="w-4 h-4" /></button>
-                                    <button onClick={() => toggleStock(product.id, product.in_stock)} className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors border ${product.in_stock ? 'bg-neutral-50 text-neutral-700 border-neutral-200 hover:bg-neutral-100' : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'}`}>
-                                        {product.in_stock ? 'Con Stock' : 'Sin Stock'}
-                                    </button>
                                     <button onClick={() => handleEdit(product)} className="p-2 text-neutral-400 hover:text-blue-600 bg-white border border-neutral-200 rounded-lg transition-colors" title="Editar"><Edit2 className="w-4 h-4" /></button>
                                     <button onClick={() => handleDelete(product.id, product.image_url)} className="p-2 text-neutral-400 hover:text-red-600 bg-white border border-neutral-200 rounded-lg transition-colors" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
                                 </div>
@@ -259,11 +266,8 @@ export default function ProductsTab() {
         );
     }
 
-    // --------------------------------------------------------------------------------
-    // VISTA DE FORMULARIO (CREACIÓN / EDICIÓN)
-    // --------------------------------------------------------------------------------
     return (
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-4xl mx-auto pb-10">
             <button onClick={handleCancelForm} className="flex items-center gap-2 text-neutral-500 hover:text-neutral-900 font-bold mb-6 transition-colors">
                 <ArrowLeft className="w-5 h-5" /> Volver al listado
             </button>
@@ -271,23 +275,72 @@ export default function ProductsTab() {
             <div className="bg-white p-6 sm:p-10 rounded-3xl shadow-xl border border-neutral-100 relative overflow-hidden">
                 <h2 className="text-2xl font-black text-neutral-900 mb-8">{editingProduct ? 'Editar Producto' : 'Crear Nuevo Producto'}</h2>
 
-                <form key={editingProduct ? editingProduct.id : 'new'} onSubmit={handleProductSubmit} className="space-y-6 relative z-10">
-                    <div>
-                        <label className="block text-sm font-black text-neutral-700 uppercase mb-2">Nombre del producto</label>
-                        <input name="name" type="text" defaultValue={editingProduct?.name || ''} required className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 transition-all bg-neutral-50 focus:bg-white" placeholder="Ej: Remera Lisa Blanca" />
+                <form key={editingProduct ? editingProduct.id : 'new'} onSubmit={handleProductSubmit} className="space-y-8 relative z-10">
+
+                    {/* SECCIÓN: INFO BÁSICA */}
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-bold text-neutral-800 border-b border-neutral-100 pb-2">Información Básica</h3>
+                        <div>
+                            <label className="block text-sm font-black text-neutral-700 uppercase mb-2">Nombre del producto</label>
+                            <input name="name" type="text" defaultValue={editingProduct?.name || ''} required className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 transition-all bg-neutral-50 focus:bg-white" placeholder="Ej: Casco Integral LS2" />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-black text-neutral-700 uppercase mb-2">Descripción</label>
+                            <textarea name="description" rows={4} defaultValue={editingProduct?.description || ''} className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 transition-all bg-neutral-50 focus:bg-white" placeholder="Detalles, características, materiales..."></textarea>
+                        </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-sm font-black text-neutral-700 uppercase mb-2">Precio de Venta ($)</label>
-                            <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price || ''} required className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 transition-all bg-neutral-50 focus:bg-white" placeholder="0.00" />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-black text-neutral-700 uppercase mb-2">Precio Original ($) <span className="text-neutral-400 font-medium normal-case text-xs">(Para mostrar en oferta)</span></label>
-                            <input name="compare_at_price" type="number" step="0.01" defaultValue={editingProduct?.compare_at_price || ''} className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 transition-all bg-neutral-50 focus:bg-white" placeholder="0.00 (Opcional)" />
+                    {/* SECCIÓN: PRECIOS Y COSTOS */}
+                    <div className="space-y-4 bg-neutral-50/50 p-5 rounded-2xl border border-neutral-200">
+                        <h3 className="text-lg font-bold text-neutral-800 mb-2">Precios y Rentabilidad</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                            <div>
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Precio de Venta</label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
+                                    <input type="number" step="0.01" value={formPrice} onChange={(e) => setFormPrice(e.target.value)} required className="w-full pl-8 p-3 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white" placeholder="0.00" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Precio Oferta <span className="text-neutral-400 normal-case">(Opcional)</span></label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
+                                    <input name="compare_at_price" type="number" step="0.01" defaultValue={editingProduct?.compare_at_price || ''} className="w-full pl-8 p-3 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white" placeholder="0.00" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Costo del producto</label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
+                                    <input type="number" step="0.01" value={formCost} onChange={(e) => setFormCost(e.target.value)} className="w-full pl-8 p-3 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white" placeholder="0.00" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Margen</label>
+                                <div className="relative">
+                                    <input type="text" readOnly value={`${calculateMargin()}%`} className="w-full p-3 border border-neutral-200 rounded-xl text-green-700 font-bold bg-green-50 outline-none text-right pr-4" />
+                                </div>
+                            </div>
                         </div>
                     </div>
 
+                    {/* SECCIÓN: INVENTARIO */}
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-bold text-neutral-800 border-b border-neutral-100 pb-2">Inventario</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-black text-neutral-700 uppercase mb-2">SKU (Código de artículo)</label>
+                                <input name="sku" type="text" defaultValue={editingProduct?.sku || ''} className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 transition-all bg-neutral-50 focus:bg-white" placeholder="Ej: MOTO-CAS-001" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-black text-neutral-700 uppercase mb-2">Cantidad en Stock</label>
+                                <input name="stock_quantity" type="number" defaultValue={editingProduct?.stock_quantity || 0} required className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 transition-all bg-neutral-50 focus:bg-white" placeholder="0" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* SECCIÓN: ORGANIZACIÓN */}
                     <div className="p-5 rounded-2xl border border-neutral-200 bg-neutral-50/50">
                         <div className="flex items-center justify-between mb-3">
                             <label className="block text-sm font-black text-neutral-700 uppercase">Categoría</label>
@@ -295,7 +348,6 @@ export default function ProductsTab() {
                                 {isCreatingCategoryInline ? 'Elegir del listado' : '+ Crear nueva categoría aquí'}
                             </button>
                         </div>
-
                         {isCreatingCategoryInline ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <input name="new_category_name" type="text" placeholder="Nombre de categoría..." className="w-full p-3 border border-neutral-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-neutral-900 bg-white" />
@@ -312,18 +364,23 @@ export default function ProductsTab() {
                         )}
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-black text-neutral-700 uppercase mb-2">Descripción</label>
-                        <textarea name="description" rows={4} defaultValue={editingProduct?.description || ''} className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 transition-all bg-neutral-50 focus:bg-white" placeholder="Detalles, medidas, materiales..."></textarea>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-black text-neutral-700 uppercase mb-2">Imagen Principal {editingProduct && <span className="text-neutral-400 font-medium normal-case text-xs">(Opcional si ya tiene)</span>}</label>
-                        <div className="flex items-center gap-4 p-4 border-2 border-dashed border-neutral-200 rounded-2xl bg-neutral-50 hover:bg-neutral-100 transition-colors">
-                            {editingProduct?.image_url && (
-                                <img src={editingProduct.image_url} alt="Actual" className="w-16 h-16 object-cover rounded-xl border border-neutral-200 shadow-sm" />
-                            )}
-                            <input name="image" type="file" accept="image/*" className="w-full text-sm text-neutral-500 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-white file:text-neutral-900 file:shadow-sm hover:file:bg-neutral-50 cursor-pointer" />
+                    {/* SECCIÓN: MULTIMEDIA */}
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-bold text-neutral-800 border-b border-neutral-100 pb-2">Multimedia</h3>
+                        <div className="grid grid-cols-1 gap-6">
+                            <div>
+                                <label className="block text-sm font-black text-neutral-700 uppercase mb-2">Video de YouTube (Link)</label>
+                                <input name="youtube_url" type="url" defaultValue={editingProduct?.youtube_url || ''} className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 transition-all bg-neutral-50 focus:bg-white" placeholder="https://www.youtube.com/watch?v=..." />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-black text-neutral-700 uppercase mb-2">Imagen Principal</label>
+                                <div className="flex items-center gap-4 p-4 border-2 border-dashed border-neutral-200 rounded-2xl bg-neutral-50 hover:bg-neutral-100 transition-colors">
+                                    {editingProduct?.image_url && (
+                                        <img src={editingProduct.image_url} alt="Actual" className="w-16 h-16 object-cover rounded-xl border border-neutral-200 shadow-sm" />
+                                    )}
+                                    <input name="image" type="file" accept="image/*" className="w-full text-sm text-neutral-500 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-white file:text-neutral-900 file:shadow-sm hover:file:bg-neutral-50 cursor-pointer" />
+                                </div>
+                            </div>
                         </div>
                     </div>
 
