@@ -24,6 +24,7 @@ export default function ProductsTab() {
     // Estados para el cálculo de margen en tiempo real
     const [formPrice, setFormPrice] = useState<string>('');
     const [formCost, setFormCost] = useState<string>('');
+    const [formMargin, setFormMargin] = useState<string>('0.45');
 
     useEffect(() => {
         fetchProducts();
@@ -64,6 +65,13 @@ export default function ProductsTab() {
         setIsCreatingCategoryInline(false);
         setFormPrice(product.price ? product.price.toString() : '');
         setFormCost(product.cost ? product.cost.toString() : '');
+        // Calcular margen actual si existen precio y costo
+        if (product.cost && product.price && product.cost > 0) {
+            const currentMargin = ((product.price - product.cost) / product.cost).toFixed(2);
+            setFormMargin(currentMargin);
+        } else {
+            setFormMargin('0.45');
+        }
         setView('form');
     };
 
@@ -189,6 +197,16 @@ export default function ProductsTab() {
         return '0.0';
     };
 
+    // Aplicar margen al costo para calcular precio
+    const applyMarginToCost = (marginValue?: string) => {
+        const cost = parseFloat(formCost);
+        const margin = parseFloat(marginValue || formMargin);
+        if (!isNaN(cost) && cost > 0 && !isNaN(margin)) {
+            const newPrice = Math.round(cost * (1 + margin) * 100) / 100;
+            setFormPrice(newPrice.toString());
+        }
+    };
+
     const filteredProducts = products.filter(product => {
         const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || (product.category && product.category.toLowerCase().includes(searchTerm.toLowerCase()));
         const matchesQuickFilter =
@@ -296,10 +314,36 @@ export default function ProductsTab() {
                         <h3 className="text-lg font-bold text-neutral-800 mb-2">Precios y Rentabilidad</h3>
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                             <div>
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Costo del producto</label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
+                                    <input type="number" step="0.01" value={formCost} onChange={(e) => setFormCost(e.target.value)} className="w-full pl-8 p-3 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white" placeholder="0.00" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Margen a aplicar</label>
+                                <div className="relative">
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">%</span>
+                                    <input type="number" step="0.01" value={(parseFloat(formMargin) * 100).toFixed(0)} onChange={(e) => setFormMargin((parseFloat(e.target.value) / 100).toFixed(2))} className="w-full pr-8 p-3 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white text-right" placeholder="45" />
+                                </div>
+                            </div>
+                            <div className="col-span-2">
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Atajos de margen</label>
+                                <div className="flex gap-2 flex-wrap">
+                                    {[0, 0.30, 0.45, 0.50, 0.60].map(margin => (
+                                        <button key={margin} type="button" onClick={() => { setFormMargin(margin.toString()); applyMarginToCost(margin.toString()); }} className={`px-3 py-2 text-xs font-bold rounded-lg transition-colors ${formMargin === margin.toString() ? 'bg-neutral-900 text-white' : 'bg-white border border-neutral-200 text-neutral-700 hover:bg-neutral-50'}`}>
+                                            {margin === 0 ? 'Sin margen' : `+${(margin * 100).toFixed(0)}%`}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 pt-4 border-t border-neutral-200">
+                            <div>
                                 <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Precio de Venta</label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
-                                    <input type="number" step="0.01" value={formPrice} onChange={(e) => setFormPrice(e.target.value)} required className="w-full pl-8 p-3 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white" placeholder="0.00" />
+                                    <input type="number" step="0.01" value={formPrice} onChange={(e) => setFormPrice(e.target.value)} required className="w-full pl-8 p-3 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white font-bold text-lg" placeholder="0.00" />
                                 </div>
                             </div>
                             <div>
@@ -310,16 +354,9 @@ export default function ProductsTab() {
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Costo del producto</label>
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Margen actual</label>
                                 <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
-                                    <input type="number" step="0.01" value={formCost} onChange={(e) => setFormCost(e.target.value)} className="w-full pl-8 p-3 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white" placeholder="0.00" />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Margen</label>
-                                <div className="relative">
-                                    <input type="text" readOnly value={`${calculateMargin()}%`} className="w-full p-3 border border-neutral-200 rounded-xl text-green-700 font-bold bg-green-50 outline-none text-right pr-4" />
+                                    <input type="text" readOnly value={`${calculateMargin()}%`} className="w-full p-3 border border-neutral-200 rounded-xl text-green-700 font-bold bg-green-50 outline-none text-right pr-4 text-lg" />
                                 </div>
                             </div>
                         </div>
