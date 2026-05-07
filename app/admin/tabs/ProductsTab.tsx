@@ -249,6 +249,16 @@ export default function ProductsTab() {
         }
     };
 
+    // Detectar doble tap en móvil
+    const lastTapRef = { current: 0 };
+    const handleProductTap = (product: any) => {
+        const now = Date.now();
+        if (now - lastTapRef.current < 300) {
+            handleEdit(product);
+        }
+        lastTapRef.current = now;
+    };
+
     const filteredProducts = products.filter(product => {
         const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || (product.category && product.category.toLowerCase().includes(searchTerm.toLowerCase()));
         const matchesQuickFilter =
@@ -293,7 +303,7 @@ export default function ProductsTab() {
                                 <h3 className="text-lg font-bold text-neutral-900">No hay productos.</h3>
                             </div>
                         ) : filteredProducts.map(product => (
-                            <div key={product.id} onDoubleClick={() => handleEdit(product)} className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-2xl transition-all hover:shadow-md cursor-pointer select-none ${!product.is_active ? 'opacity-50 border-dashed bg-neutral-50' : product.in_stock ? 'border-neutral-200 bg-white' : 'border-red-100 bg-red-50/50 grayscale-[0.2]'}`}>
+                            <div key={product.id} onDoubleClick={() => handleEdit(product)} onClick={() => handleProductTap(product)} className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-2xl transition-all hover:shadow-md cursor-pointer select-none ${!product.is_active ? 'opacity-50 border-dashed bg-neutral-50' : product.in_stock ? 'border-neutral-200 bg-white' : 'border-red-100 bg-red-50/50 grayscale-[0.2]'}`}>
                                 <div className="flex items-center gap-4 overflow-hidden mb-4 sm:mb-0">
                                     {product.image_url ? <img src={product.image_url} className="w-16 h-16 object-cover rounded-xl bg-neutral-100 flex-shrink-0 border border-neutral-100" /> : <div className="w-16 h-16 bg-neutral-100 rounded-xl flex items-center justify-center text-neutral-300 border border-neutral-200"><ImageIcon className="w-6 h-6" /></div>}
                                     <div className="min-w-0">
@@ -355,55 +365,56 @@ export default function ProductsTab() {
                     {/* SECCIÓN: PRECIOS Y COSTOS */}
                     <div className="space-y-4 bg-neutral-50/50 p-4 sm:p-5 rounded-2xl border border-neutral-200">
                         <h3 className="text-lg font-bold text-neutral-800 mb-3">Precios y Rentabilidad</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+
+                        {/* Fila 1: Costo + Margen */}
+                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
                             <div>
-                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Costo del producto</label>
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-1">Costo</label>
                                 <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
-                                    <input type="number" step="0.01" value={formCost} onChange={(e) => setFormCost(e.target.value)} className="w-full pl-8 p-3 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white" placeholder="0.00" />
+                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-neutral-500 font-bold text-sm">$</span>
+                                    <input type="number" step="0.01" value={formCost} onChange={(e) => setFormCost(e.target.value)} className="w-full pl-6 p-2 border border-neutral-200 rounded-lg text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white text-sm" placeholder="0" />
                                 </div>
                             </div>
-                            <div className="col-span-1">
-                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Margen %</label>
+                            <div>
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-1">Margen</label>
                                 <div className="relative">
                                     <span className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500 font-bold text-xs">%</span>
-                                    <input type="number" step="1" min="0" max="100" value={(parseFloat(formMargin) * 100).toFixed(0)} onChange={(e) => setFormMargin((parseFloat(e.target.value) / 100).toFixed(2))} className="w-full pr-6 p-2 border border-neutral-200 rounded-lg text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white text-right text-sm" placeholder="45" />
-                                </div>
-                            </div>
-                            <div className="col-span-1 sm:col-span-2 lg:col-span-2">
-                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Atajos</label>
-                                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1 sm:gap-2">
-                                    {[0, 0.30, 0.45, 0.50, 0.60].map(margin => (
-                                        <button key={margin} type="button" onClick={() => { setFormMargin(margin.toString()); applyMarginToCost(margin.toString()); }} className={`px-1 py-2 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${formMargin === margin.toString() ? 'bg-neutral-900 text-white' : 'bg-white border border-neutral-200 text-neutral-700 hover:bg-neutral-50'}`}>
-                                            {margin === 0 ? '0%' : `${(margin * 100).toFixed(0)}%`}
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="mt-3 flex items-center gap-2">
-                                    <span className="text-xs font-black text-neutral-700 uppercase">Custom:</span>
-                                    <input type="range" min="0" max="100" step="1" value={(parseFloat(formMargin) * 100).toFixed(0)} onChange={(e) => { const val = (parseInt(e.target.value) / 100).toFixed(2); setFormMargin(val); applyMarginToCost(val); }} className="flex-grow h-2 bg-neutral-200 rounded-lg appearance-none cursor-pointer accent-neutral-900" />
-                                    <span className="text-xs font-bold text-neutral-700 w-8 text-right">{(parseFloat(formMargin) * 100).toFixed(0)}%</span>
+                                    <input type="number" step="1" min="0" max="100" value={(parseFloat(formMargin) * 100).toFixed(0)} onChange={(e) => setFormMargin((parseFloat(e.target.value) / 100).toFixed(2))} className="w-full pr-5 p-2 border border-neutral-200 rounded-lg text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white text-right text-sm" placeholder="45" />
                                 </div>
                             </div>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 pt-4 border-t border-neutral-200">
+
+                        {/* Atajos + Slider en una fila */}
+                        <div className="space-y-2">
+                            <label className="block text-xs font-black text-neutral-700 uppercase">Atajos y personalizado</label>
+                            <div className="flex gap-1 flex-wrap">
+                                {[0, 0.30, 0.45, 0.50, 0.60].map(margin => (
+                                    <button key={margin} type="button" onClick={() => { setFormMargin(margin.toString()); applyMarginToCost(margin.toString()); }} className={`px-2 py-1 text-xs font-bold rounded-lg transition-colors ${formMargin === margin.toString() ? 'bg-neutral-900 text-white' : 'bg-white border border-neutral-200 text-neutral-700 hover:bg-neutral-50'}`}>
+                                        {margin === 0 ? '0%' : `${(margin * 100).toFixed(0)}%`}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input type="range" min="0" max="100" step="1" value={(parseFloat(formMargin) * 100).toFixed(0)} onChange={(e) => { const val = (parseInt(e.target.value) / 100).toFixed(2); setFormMargin(val); applyMarginToCost(val); }} className="flex-grow h-2 bg-neutral-200 rounded-lg appearance-none cursor-pointer accent-neutral-900" />
+                                <span className="text-xs font-bold text-neutral-700 w-6 text-right">{(parseFloat(formMargin) * 100).toFixed(0)}%</span>
+                            </div>
+                        </div>
+
+                        {/* Fila 2: Precios */}
+                        <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-4 border-t border-neutral-200">
                             <div>
-                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Precio de Venta</label>
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-1">Precio Venta</label>
                                 <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
-                                    <input type="number" step="0.01" value={formPrice} onChange={(e) => setFormPrice(e.target.value)} required className="w-full pl-8 p-3 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white font-bold text-lg" placeholder="0.00" />
+                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-neutral-500 font-bold text-sm">$</span>
+                                    <input type="number" step="0.01" value={formPrice} onChange={(e) => setFormPrice(e.target.value)} required className="w-full pl-6 p-2 border border-neutral-200 rounded-lg text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white font-bold text-sm sm:text-base" placeholder="0" />
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-xs font-black text-neutral-700 uppercase mb-2">Precio Oferta <span className="text-neutral-400 normal-case">(Opcional)</span></label>
+                                <label className="block text-xs font-black text-neutral-700 uppercase mb-1">Oferta <span className="text-neutral-400 normal-case text-[10px]">(Opc.)</span></label>
                                 <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
-                                    <input name="compare_at_price" type="number" step="0.01" defaultValue={editingProduct?.compare_at_price || ''} className="w-full pl-8 p-3 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white" placeholder="0.00" />
+                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-neutral-500 font-bold text-sm">$</span>
+                                    <input name="compare_at_price" type="number" step="0.01" defaultValue={editingProduct?.compare_at_price || ''} className="w-full pl-6 p-2 border border-neutral-200 rounded-lg text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 bg-white text-sm" placeholder="0" />
                                 </div>
-                            </div>
-                            <div className="bg-green-50 p-3 rounded-xl border border-green-200 flex flex-col justify-center">
-                                <label className="block text-xs font-black text-green-700 uppercase mb-1">Margen actual</label>
-                                <div className="text-2xl font-black text-green-700">{calculateMargin()}%</div>
                             </div>
                         </div>
                     </div>
