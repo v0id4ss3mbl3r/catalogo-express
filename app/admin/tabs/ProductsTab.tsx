@@ -26,6 +26,13 @@ export default function ProductsTab() {
     const [formCost, setFormCost] = useState<string>('');
     const [formMargin, setFormMargin] = useState<string>('0.45');
 
+    // Estados para acciones en masa
+    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+    const [bulkActionMode, setBulkActionMode] = useState<'none' | 'category' | 'margin'>('none');
+    const [bulkCategory, setBulkCategory] = useState<string>('');
+    const [bulkMargin, setBulkMargin] = useState<string>('0.45');
+    const [bulkLoading, setBulkLoading] = useState(false);
+
     useEffect(() => {
         fetchProducts();
         fetchCategories();
@@ -187,6 +194,107 @@ export default function ProductsTab() {
         if (!error) fetchProducts();
     };
 
+    // Acciones en masa
+    const toggleSelectProduct = (id: number) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(id)) {
+            newSet.delete(id);
+        } else {
+            newSet.add(id);
+        }
+        setSelectedIds(newSet);
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedIds.size === filteredProducts.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(filteredProducts.map(p => p.id)));
+        }
+    };
+
+    const performBulkDelete = async () => {
+        if (!confirm(`¿Eliminar ${selectedIds.size} producto${selectedIds.size !== 1 ? 's' : ''}?`)) return;
+        setBulkLoading(true);
+        try {
+            for (const id of selectedIds) {
+                const product = products.find(p => p.id === id);
+                if (product?.image_url) {
+                    const urlParts = product.image_url.split('/');
+                    const fileName = urlParts[urlParts.length - 1];
+                    await supabase.storage.from('product-images').remove([fileName]);
+                }
+                await supabase.from('products').delete().eq('id', id);
+            }
+            fetchProducts();
+            setSelectedIds(new Set());
+            setMessage(`✅ ${selectedIds.size} producto${selectedIds.size !== 1 ? 's' : ''} eliminado${selectedIds.size !== 1 ? 's' : ''}`);
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error: any) {
+            setMessage(`Error: ${error.message}`);
+        } finally {
+            setBulkLoading(false);
+        }
+    };
+
+    const performBulkCategoryAssign = async () => {
+        if (!bulkCategory) {
+            setMessage('Selecciona una categoría');
+            return;
+        }
+        setBulkLoading(true);
+        try {
+            const catId = parseInt(bulkCategory);
+            const category = categories.find(c => c.id === catId);
+            const categoryName = category?.name || '';
+
+            for (const id of selectedIds) {
+                await supabase.from('products').update({
+                    category_id: catId,
+                    category: categoryName
+                }).eq('id', id);
+            }
+            fetchProducts();
+            setSelectedIds(new Set());
+            setBulkActionMode('none');
+            setMessage(`✅ Categoría asignada a ${selectedIds.size} producto${selectedIds.size !== 1 ? 's' : ''}`);
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error: any) {
+            setMessage(`Error: ${error.message}`);
+        } finally {
+            setBulkLoading(false);
+        }
+    };
+
+    const performBulkMargin = async () => {
+        setBulkLoading(true);
+        try {
+            const margin = parseFloat(bulkMargin);
+            let updated = 0;
+
+            for (const id of selectedIds) {
+                const product = products.find(p => p.id === id);
+                if (product?.cost && product.cost > 0) {
+                    const newPrice = Math.round(product.cost * (1 + margin) * 100) / 100;
+                    await supabase.from('products').update({
+                        price: newPrice
+                    }).eq('id', id);
+                    updated++;
+                }
+            }
+
+            fetchProducts();
+            setSelectedIds(new Set());
+            setBulkActionMode('none');
+            setMessage(`✅ Margen aplicado a ${updated} producto${updated !== 1 ? 's' : ''}`);
+            setTimeout(() => setMessage(''), 3000);
+        } catch (error: any) {
+            setMessage(`Error: ${error.message}`);
+        } finally {
+            setBulkLoading(false);
+        }
+    };
+
     const resyncFromHoladeco = async (product: any) => {
         if (!product.sku) {
             setMessage('Error: Este producto no tiene SKU');
@@ -294,6 +402,53 @@ export default function ProductsTab() {
                             <button onClick={() => setQuickFilter('out_of_stock')} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${quickFilter === 'out_of_stock' ? 'bg-red-500 text-white' : 'bg-neutral-50 text-neutral-600 border border-neutral-200'}`}>Agotados</button>
                             <button onClick={() => setQuickFilter('hidden')} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${quickFilter === 'hidden' ? 'bg-orange-500 text-white' : 'bg-neutral-50 text-neutral-600 border border-neutral-200'}`}>Ocultos</button>
                         </div>
+                        {selectedIds.size > 0 && (
+                            <div className="flex items-center justify-between gap-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" checked={selectedIds.size === filteredProducts.length && filteredProducts.length > 0} onChange={toggleSelectAll} className="w-4 h-4 cursor-pointer" />
+                                    <span className="font-bold text-blue-900">{selectedIds.size} seleccionado{selectedIds.size !== 1 ? 's' : ''}</span>
+                                </label>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setBulkActionMode('category')} disabled={bulkLoading} className="px-3 py-1 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">📁 Categoría</button>
+                                    <button onClick={() => setBulkActionMode('margin')} disabled={bulkLoading} className="px-3 py-1 text-xs font-bold bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">📊 Margen</button>
+                                    <button onClick={performBulkDelete} disabled={bulkLoading} className="px-3 py-1 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50">🗑️ Eliminar</button>
+                                </div>
+                            </div>
+                        )}
+                        {bulkActionMode === 'category' && (
+                            <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3">
+                                <div>
+                                    <label className="block text-xs font-black text-blue-900 uppercase mb-2">Asignar categoría a {selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''}</label>
+                                    <select value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} className="w-full p-2 border border-blue-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-600 bg-white">
+                                        <option value="">Selecciona una categoría</option>
+                                        {flatCategories.map(c => <option key={c.id} value={String(c.id)}>{c.displayName}</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={performBulkCategoryAssign} disabled={bulkLoading || !bulkCategory} className="flex-1 px-3 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">Asignar</button>
+                                    <button onClick={() => { setBulkActionMode('none'); setBulkCategory(''); }} className="px-4 py-2 text-sm font-bold bg-neutral-200 text-neutral-900 rounded-lg hover:bg-neutral-300">Cancelar</button>
+                                </div>
+                            </div>
+                        )}
+                        {bulkActionMode === 'margin' && (
+                            <div className="p-4 bg-green-50 border border-green-200 rounded-xl space-y-3">
+                                <div>
+                                    <label className="block text-xs font-black text-green-900 uppercase mb-2">Aplicar margen a {selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''}</label>
+                                    <div className="flex gap-2 flex-wrap mb-2">
+                                        {[0, 0.30, 0.45, 0.50, 0.60].map(margin => (
+                                            <button key={margin} type="button" onClick={() => setBulkMargin(margin.toString())} className={`px-2 py-1 text-xs font-bold rounded-lg transition-colors ${bulkMargin === margin.toString() ? 'bg-green-600 text-white' : 'bg-white border border-green-200 text-green-700 hover:bg-green-50'}`}>
+                                                {margin === 0 ? '0%' : `${(margin * 100).toFixed(0)}%`}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <input type="number" step="1" min="0" max="100" value={(parseFloat(bulkMargin) * 100).toFixed(0)} onChange={(e) => setBulkMargin((parseFloat(e.target.value) / 100).toFixed(2))} className="w-full p-2 border border-green-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-green-600 bg-white" placeholder="0" />
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={performBulkMargin} disabled={bulkLoading} className="flex-1 px-3 py-2 text-sm font-bold bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">Aplicar Margen</button>
+                                    <button onClick={() => setBulkActionMode('none')} className="px-4 py-2 text-sm font-bold bg-neutral-200 text-neutral-900 rounded-lg hover:bg-neutral-300">Cancelar</button>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 scroller-hidden">
@@ -303,8 +458,9 @@ export default function ProductsTab() {
                                 <h3 className="text-lg font-bold text-neutral-900">No hay productos.</h3>
                             </div>
                         ) : filteredProducts.map(product => (
-                            <div key={product.id} onDoubleClick={() => handleEdit(product)} onClick={() => handleProductTap(product)} className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-2xl transition-all hover:shadow-md cursor-pointer select-none ${!product.is_active ? 'opacity-50 border-dashed bg-neutral-50' : product.in_stock ? 'border-neutral-200 bg-white' : 'border-red-100 bg-red-50/50 grayscale-[0.2]'}`}>
+                            <div key={product.id} onDoubleClick={() => handleEdit(product)} onClick={() => handleProductTap(product)} className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-2xl transition-all hover:shadow-md ${selectedIds.has(product.id) ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-200' : !product.is_active ? 'opacity-50 border-dashed bg-neutral-50' : product.in_stock ? 'border-neutral-200 bg-white' : 'border-red-100 bg-red-50/50 grayscale-[0.2]'}`}>
                                 <div className="flex items-center gap-4 overflow-hidden mb-4 sm:mb-0">
+                                    <input type="checkbox" checked={selectedIds.has(product.id)} onChange={() => toggleSelectProduct(product.id)} onClick={(e) => e.stopPropagation()} className="w-4 h-4 cursor-pointer flex-shrink-0" />
                                     {product.image_url ? <img src={product.image_url} className="w-16 h-16 object-cover rounded-xl bg-neutral-100 flex-shrink-0 border border-neutral-100" /> : <div className="w-16 h-16 bg-neutral-100 rounded-xl flex items-center justify-center text-neutral-300 border border-neutral-200"><ImageIcon className="w-6 h-6" /></div>}
                                     <div className="min-w-0">
                                         <div className="flex items-center gap-2">
