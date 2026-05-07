@@ -451,9 +451,9 @@ export default function ProductsTab() {
                                 </select>
                             </div>
                         ) : (
-                            <select name="category_id" defaultValue={editingProduct?.category_id || ''} className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 transition-all bg-white">
+                            <select name="category_id" defaultValue={editingProduct?.category_id ? String(editingProduct.category_id) : ''} className="w-full p-3.5 border border-neutral-200 rounded-xl text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-900 transition-all bg-white">
                                 <option value="">No asignar ninguna categoría</option>
-                                {flatCategories.map(c => <option key={c.id} value={c.id}>{c.displayName}</option>)}
+                                {flatCategories.map(c => <option key={c.id} value={String(c.id)}>{c.displayName}</option>)}
                             </select>
                         )}
                     </div>
