@@ -58,8 +58,36 @@ export default function AdminLayout() {
     return (
         <main className="min-h-screen bg-neutral-50 flex flex-col md:flex-row">
 
-            {/* SIDEBAR MODULAR */}
-            <aside className="w-full md:w-64 bg-white border-r border-neutral-200 flex flex-col md:min-h-screen sticky top-0 z-10">
+            {/* HEADER MÓVIL */}
+            <header className="md:hidden bg-white border-b border-neutral-200 flex items-center justify-between px-4 py-3 sticky top-0 z-20">
+                <div className="flex items-center gap-2">
+                    {storeSettings?.logo_url ? (
+                        <img src={storeSettings.logo_url} alt="Logo" className="w-6 h-6 rounded object-cover" />
+                    ) : (
+                        <div className="w-6 h-6 bg-neutral-900 rounded flex items-center justify-center text-white font-bold text-xs">A</div>
+                    )}
+                    <h1 className="font-black text-neutral-900 text-sm truncate">{storeSettings?.store_name || 'Admin'}</h1>
+                </div>
+                <button onClick={handleLogout} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Cerrar sesión">
+                    <LogOut className="w-4 h-4" />
+                </button>
+            </header>
+
+            {/* NAV MÓVIL */}
+            <nav className="md:hidden bg-white border-b border-neutral-200 flex items-center justify-center gap-1 px-2 py-2 overflow-x-auto">
+                <button onClick={() => setActiveTab('products')} className={`flex items-center gap-2 px-3 py-2 rounded-lg font-bold text-xs whitespace-nowrap transition-colors ${activeTab === 'products' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
+                    <Package className="w-4 h-4" /> Productos
+                </button>
+                <button onClick={() => setActiveTab('categories')} className={`flex items-center gap-2 px-3 py-2 rounded-lg font-bold text-xs whitespace-nowrap transition-colors ${activeTab === 'categories' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
+                    <Tags className="w-4 h-4" /> Categorías
+                </button>
+                <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-2 px-3 py-2 rounded-lg font-bold text-xs whitespace-nowrap transition-colors ${activeTab === 'settings' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
+                    <Settings className="w-4 h-4" /> Config
+                </button>
+            </nav>
+
+            {/* SIDEBAR DESKTOP */}
+            <aside className="hidden md:flex w-64 bg-white border-r border-neutral-200 flex-col min-h-screen sticky top-0">
                 <div className="p-6 border-b border-neutral-200 flex items-center gap-3">
                     {storeSettings?.logo_url ? (
                         <img src={storeSettings.logo_url} alt="Logo" className="w-8 h-8 rounded object-cover" />
@@ -69,15 +97,15 @@ export default function AdminLayout() {
                     <h1 className="font-black text-neutral-900 truncate">{storeSettings?.store_name || 'Panel Admin'}</h1>
                 </div>
 
-                <nav className="flex-grow p-4 space-y-2 flex md:flex-col overflow-x-auto md:overflow-visible">
-                    <button onClick={() => setActiveTab('products')} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-colors whitespace-nowrap w-full ${activeTab === 'products' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
-                        <Package className="w-5 h-5" /> Productos
+                <nav className="flex-grow p-4 space-y-2 flex flex-col">
+                    <button onClick={() => setActiveTab('products')} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-colors ${activeTab === 'products' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
+                        <Package className="w-5 h-5 flex-shrink-0" /> Productos
                     </button>
-                    <button onClick={() => setActiveTab('categories')} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-colors whitespace-nowrap w-full ${activeTab === 'categories' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
-                        <Tags className="w-5 h-5" /> Categorías
+                    <button onClick={() => setActiveTab('categories')} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-colors ${activeTab === 'categories' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
+                        <Tags className="w-5 h-5 flex-shrink-0" /> Categorías
                     </button>
-                    <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-colors whitespace-nowrap w-full ${activeTab === 'settings' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
-                        <Settings className="w-5 h-5" /> Configuración
+                    <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-colors ${activeTab === 'settings' ? 'bg-neutral-900 text-white' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900'}`}>
+                        <Settings className="w-5 h-5 flex-shrink-0" /> Configuración
                     </button>
                 </nav>
 
@@ -89,7 +117,7 @@ export default function AdminLayout() {
             </aside>
 
             {/* CONTENEDOR DINÁMICO */}
-            <div className="flex-grow p-6 sm:p-10 w-full overflow-hidden">
+            <div className="flex-grow p-4 sm:p-6 lg:p-10 w-full overflow-hidden">
                 {activeTab === 'settings' && <SettingsTab onSettingsUpdated={fetchHeaderSettings} />}
                 {activeTab === 'products' && <ProductsTab />}
                 {activeTab === 'categories' && <CategoriesTab />}
